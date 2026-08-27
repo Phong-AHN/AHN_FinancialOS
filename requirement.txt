@@ -1,0 +1,470 @@
+AHN Financial Operating System / AI CFO — Software Requirements 1. Product Goal
+Build a financial operating system for AHN that tracks every single dollar coming into and leaving the company, across all connected accounts, entities, projects, events, employees, vendors, subscriptions, payroll systems, and banking platforms.
+
+The system must answer, in real time:
+
+How much cash do we have?
+Where is every dollar coming from?
+Where is every dollar going?
+What is our monthly burn?
+How much runway do we have?
+How much revenue do we need this month to break even?
+How much revenue do we need to hit a target profit margin or growth rate?
+Which projects, clients, business units, events, and services are profitable?
+Which subscriptions or vendors have increased in price?
+Which software or recurring expenses can be reduced, replaced, consolidated, or eliminated?
+What financial changes require immediate attention?
+Core non-negotiable requirement: every dollar must be traceable from company-level reporting down to the underlying bank transaction, payment, vendor, employee, client, project, event, invoice, or subscription responsible for it.
+
+2. Primary Integrations
+Required integrations:
+
+QuickBooks Online
+U.S. bank accounts
+Vietnamese bank accounts
+VEEM, especially for Philippines payroll
+Credit/debit cards
+Stripe / PayPal / payment processors where applicable
+Payroll systems
+Google Workspace billing
+SaaS/subscription vendors where APIs or billing emails are available
+Slack
+Email
+SMS/text messaging provider
+Architecture should support adding more integrations later.
+
+QuickBooks should remain the accounting source of truth, while this app acts as the operational intelligence layer above it.
+
+3. Transaction Tracking
+The system must ingest and normalize all financial transactions from connected sources.
+
+Each transaction should contain, where available:
+
+Transaction ID
+Date/time
+Amount
+Currency
+Direction: inflow or outflow
+Account
+Entity
+Vendor/customer
+Category
+Subcategory
+Business unit
+Client
+Project
+Event
+Employee/contractor
+Payment method
+Invoice/bill reference
+Subscription flag
+Recurring flag
+Notes
+Source system
+Reconciliation status
+Transactions should auto-categorize using rules and AI, while allowing manual corrections.
+
+The system must support multi-currency reporting across USD, VND, and future currencies.
+
+4. Every-Dollar Alerting
+Default alert mode: every dollar.
+
+Whenever money enters or leaves any connected account, the system should be capable of sending an alert through:
+
+Slack
+SMS/text message
+Email
+In-app notifications
+Example inflow alert:
++$12,500 received from Client X. Project: Website Redesign. Account: US Operating. Current total cash: $284,300.
+
+Example outflow alert:
+-$4,800 sent through VEEM for Philippines payroll. Monthly payroll spend is now $31,400. Current runway: 7.8 months.
+
+Users must be able to configure alerts by transaction amount, inflow/outflow, account, vendor, category, project, event, business unit, subscription, payroll, price increase, bank balance threshold, runway threshold, profitability threshold, overdue invoice, budget overrun, or unusual transaction.
+
+Support immediate alerts, daily summaries, weekly summaries, and digest modes.
+
+5. Slack Integration
+Slack must be a first-class integration.
+
+Requirements:
+
+Send transaction alerts to selected channels or DMs
+Send subscription price-change alerts
+Send runway alerts
+Send overdue invoice alerts
+Send project profitability alerts
+Send budget overrun alerts
+Send daily and weekly CFO summaries
+Route different alert types to different Slack channels
+Include deep links back to the relevant transaction/project/vendor in the app
+Optional future enhancement: Slack commands and natural-language financial queries.
+
+6. Email and SMS Alerts
+Users can independently enable or disable Slack, email, SMS, and in-app alerts.
+
+Support alert severity levels:
+
+Informational
+Warning
+Critical
+Critical alerts can optionally trigger multiple channels at once.
+
+7. Expense Command Center
+Track detailed expense categories including:
+
+People:
+
+U.S. payroll
+Vietnam payroll
+Philippines payroll through VEEM
+Contractors
+Freelancers
+Commissions
+Bonuses
+Professional/agency services:
+
+Website development
+UI/UX
+Design
+Video
+Marketing
+Legal
+Accounting
+Tax
+Consulting
+Software/subscriptions:
+
+Google Workspace
+ClickUp
+QuickBooks
+Beehiiv
+ManyChat
+Envato
+DigitalOcean
+Spotify
+ElevenLabs
+GoDaddy
+SmugMug
+Any future SaaS products
+8. Subscription Intelligence
+For each recurring subscription track:
+Vendor, product, monthly cost, annualized cost, previous price, current price, percentage change, renewal date, owner, usage, department, payment method, cancellation terms, and recommendation.
+
+Automatically detect:
+
+Price increases
+Duplicate tools
+Unused subscriptions
+Overlapping tools
+Annual-vs-monthly savings opportunities
+Upcoming renewals
+Services that can be consolidated or replaced
+Provide:
+
+Total monthly recurring software spend
+Total annualized spend
+Potential monthly savings
+Potential annual savings
+9. Cash and Runway
+Home screen must show cash by account/entity/country and total cash available.
+
+Calculate:
+
+Average monthly burn
+Current runway
+Committed runway including known future obligations
+Downside/worst-case runway
+Runway calculations should use deterministic math, not AI estimation.
+
+10. Monthly Break-Even Revenue
+Calculate the revenue required each month to cover all expected costs.
+
+Show:
+
+Break-even revenue
+Booked revenue
+Expected revenue
+Revenue received
+Revenue gap
+Surplus above break-even
+11. Revenue Growth and Margin Simulator
+User can set target revenue growth by month, for example +15% or +20% month-over-month.
+
+System calculates monthly revenue targets automatically.
+
+User can alternatively set a desired gross or net profit margin, and the system calculates the required revenue given forecast expenses.
+
+Support scenario planning:
+
+Base case
+Conservative case
+Aggressive case
+Custom scenario
+12. Project-Level Profitability
+Every client project must have a mini P&L.
+
+Track:
+
+Contracted revenue
+Invoiced revenue
+Cash received
+Direct expenses
+Contractor spend
+Allocated employee labor
+Software allocated to project
+Travel/event expenses
+Gross profit
+Net project profit
+Gross margin
+Net margin
+13. Time Tracking and Labor Cost
+Employees and contractors should log or sync time to projects.
+
+Calculate actual project labor cost based on loaded hourly cost, salary allocation, or contractor rate.
+
+Report:
+
+Estimated hours
+Actual hours
+Labor budget
+Actual labor cost
+Variance
+Profit impact
+14. Events P&L
+Treat each event as its own project.
+
+Revenue categories:
+
+Sponsorships
+Tickets
+Partnerships
+Vendor contributions
+Other revenue
+Expense categories:
+
+Venue
+Food/beverage
+Production
+Travel
+Staffing
+Contractors
+Marketing
+Gifts
+Entertainment
+Miscellaneous
+Calculate revenue, total expense, net profit, margin, and ROI.
+
+15. Projects Tab
+Required hierarchy:
+Company > Business Unit > Service > Client > Project.
+
+Initial business units/categories should support:
+
+Media
+Events
+Membership / Community
+AHN Solutions / Agency
+AHN Labs
+Future business units
+AHN Labs should support categories such as:
+
+E-commerce development
+Product sourcing
+Manufacturing
+Fulfillment / 3PL
+Content
+Creator campaigns
+TikTok Shop
+Livestreaming
+Store operations
+TSP / seller-store operations
+TAP / merchant-creator matchmaking
+CAP / creator services and support
+All categories must be editable/admin-configurable.
+
+16. Profitability by Business Unit
+Show revenue, direct costs, allocated costs, profit, and margin by:
+
+Company
+Entity
+Business unit
+Service
+Client
+Project
+Event
+Allow drill-down to the underlying transaction.
+
+17. Accounts Receivable
+Track:
+
+Contracted
+Invoiced
+Due
+Paid
+Overdue
+Aging buckets
+Alert on overdue invoices and large upcoming receivables.
+
+18. Accounts Payable and Future Obligations
+Track bills and known commitments before money leaves the bank.
+
+Examples:
+
+Payroll
+VEEM payments
+Contractor invoices
+Legal retainers
+Accounting fees
+Taxes
+Software renewals
+Venue deposits
+Event commitments
+Show projected cash after upcoming obligations.
+
+19. Budget vs. Actual
+Allow budgets at company, department, business-unit, event, client, and project levels.
+
+Show budget, actual, remaining, variance %, projected final cost, and alerts before overspend occurs.
+
+20. AI CFO Layer
+AI should interpret deterministic financial data rather than calculate foundational accounting numbers itself.
+
+AI should:
+
+Explain why cash changed
+Identify unusual spending
+Detect abnormal vendor charges
+Flag subscription price changes
+Identify redundant software
+Explain revenue changes
+Highlight margin deterioration
+Identify financial risks
+Surface upcoming obligations
+Suggest possible cost savings
+Summarize what requires executive attention
+21. CEO Home Screen
+The dashboard must answer immediately:
+
+How much cash do we have?
+How much revenue have we received this month?
+How much have we spent this month?
+What is net profit?
+What is runway?
+How much revenue is required to break even?
+What needs attention right now?
+Also display revenue, expenses, profit, cash, runway, AR, AP, business units, projects, and alerts.
+
+22. Reconciliation and Data Quality
+System must prevent double-counting transactions imported through multiple integrations.
+
+Requirements:
+
+Unique transaction matching
+Duplicate detection
+Bank-to-QuickBooks reconciliation status
+Manual reconciliation workflow
+Unmatched transaction queue
+Missing-category queue
+Audit trail for all edits
+Every financial number shown on a dashboard must be drillable to its source transactions.
+
+23. Roles and Permissions
+At minimum:
+
+Owner / CEO
+CFO / Finance Admin
+Accountant
+Department lead
+Project manager
+Employee/contractor
+Read-only viewer
+Sensitive information such as payroll and company-wide bank balances must support restricted permissions.
+
+24. Audit Log
+Log all financial-data changes, including:
+
+Original value
+Changed value
+User
+Timestamp
+Reason/comment where applicable
+25. Security
+Requirements:
+
+OAuth for integrations where possible
+Encryption in transit and at rest
+Secrets stored outside application code
+Role-based access control
+MFA support
+Session management
+Audit logging
+Least-privilege API scopes
+No storage of raw banking passwords
+26. Recommended Architecture
+Suggested architecture:
+External financial systems > integration/sync layer > normalized financial database > deterministic calculation engine > rules/alert engine > AI analysis layer > dashboard/API > Slack/SMS/email notifications.
+
+Possible stack:
+
+Next.js / React frontend
+TypeScript backend
+PostgreSQL/Supabase
+Background job/queue system for syncs and alerts
+QuickBooks API
+Banking/Open Banking integrations where supported
+Slack API
+SMS provider such as Twilio
+Transactional email provider
+OpenAI API for AI CFO interpretation
+Architecture should remain modular so financial connectors can be replaced independently.
+
+27. Core Entities / Data Model
+At minimum create entities/tables for:
+
+Companies
+Legal entities
+Financial accounts
+Transactions
+Vendors
+Customers
+Employees
+Contractors
+Business units
+Services
+Clients
+Projects
+Events
+Invoices
+Bills
+Subscriptions
+Payroll runs
+Time entries
+Budgets
+Revenue targets
+Forecasts
+Alert rules
+Notifications
+Integrations
+Currencies / exchange rates
+Audit logs
+28. Critical Acceptance Criteria
+The application is not complete unless:
+
+Every imported dollar can be traced to its source transaction.
+No transaction is double-counted when the same activity appears in a bank feed and QuickBooks.
+Cash balances reconcile with connected financial accounts.
+User can receive every-dollar inflow/outflow notifications via Slack, SMS, and email.
+User can see runway based on actual cash and burn.
+User can see required monthly break-even revenue.
+User can model monthly revenue growth and target margins.
+User can see profitability for every project and event.
+Labor/time can be incorporated into project profitability.
+Subscription price changes and recurring expenses are automatically flagged.
+User can drill from company-level KPIs down to individual transactions.
+The system maintains an audit trail of financial-data changes.
+29. Product Principle
+This is not intended to replace accounting software. QuickBooks remains the ledger/accounting system. This product is the financial intelligence, forecasting, cost-control, project-profitability, and executive-alert system sitting above the ledger.
+
+North-star product requirement: Every dollar in. Every dollar out. Always know what changed, why it changed, where the money went, how profitable the activity was, and how much runway remains.

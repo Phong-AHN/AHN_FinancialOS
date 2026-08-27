@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-sunk: #eef0f4;
+  --line: #e2e5ea;
+  --line-strong: #cfd4dd;
+  --text: #0b1220;
+  --text-muted: #5b6472;
+  --text-faint: #8b93a1;
+  --brand: #1f6feb;
+  --brand-soft: #e8f0fe;
+  --inflow: #0f8a5f;
+  --inflow-soft: #e6f5ee;
+  --outflow: #c02f43;
+  --outflow-soft: #fdecee;
+  --warn: #b45309;
+  --warn-soft: #fdf3e3;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1017;
+    --surface: #131a24;
+    --surface-sunk: #0f151d;
+    --line: #232c3a;
+    --line-strong: #33404f;
+    --text: #e8ecf2;
+    --text-muted: #9aa5b5;
+    --text-faint: #6b7688;
+    --brand: #5b9bff;
+    --brand-soft: #16233a;
+    --inflow: #38c48a;
+    --inflow-soft: #12281f;
+    --outflow: #f2617a;
+    --outflow-soft: #2c1419;
+    --warn: #e0a458;
+    --warn-soft: #2a2013;
+  }
+}
+
+* {
+  border-color: var(--line);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Money and identifiers line up in columns only with tabular figures. A
+   dashboard of ledger numbers that jitter between rows is unreadable. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.faint {
+  color: var(--text-faint);
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: var(--brand-soft);
+}
+
+/* Focus ring that survives both themes. */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+input,
+select,
+textarea {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  width: 100%;
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.6;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+td {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  vertical-align: top;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:hover {
+  background: var(--surface-sunk);
+}

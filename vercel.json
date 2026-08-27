@@ -1,8 +1,19 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    { "path": "/api/cron/sync", "schedule": "*/10 * * * *" },
-    { "path": "/api/cron/digest?period=daily", "schedule": "0 16 * * *" },
-    { "path": "/api/cron/digest?period=weekly", "schedule": "0 16 * * 1" }
+  "comment": [
+    "No crons here on purpose. Vercel's Hobby plan allows one cron run per day,",
+    "and the sync needs to run every ten minutes for 'every dollar, within a few",
+    "minutes' to be true. The schedule lives in worker/index.mjs, deployed",
+    "separately (Railway) — see docs/DEPLOYMENT.md.",
+    "",
+    "The /api/cron/* endpoints are unchanged and still guarded by CRON_SECRET,",
+    "so moving back to Vercel Cron on a Pro plan is a matter of restoring the",
+    "'crons' array below and stopping the worker.",
+    "",
+    "  \"crons\": [",
+    "    { \"path\": \"/api/cron/sync\", \"schedule\": \"*/10 * * * *\" },",
+    "    { \"path\": \"/api/cron/digest?period=daily\", \"schedule\": \"0 2 * * *\" },",
+    "    { \"path\": \"/api/cron/digest?period=weekly\", \"schedule\": \"0 2 * * 1\" }",
+    "  ]"
   ]
 }

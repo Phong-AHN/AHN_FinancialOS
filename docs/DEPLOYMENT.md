@@ -1,0 +1,144 @@
+# Deployment
+
+Two pieces, deployed separately:
+
+| | Where | What it does |
+|---|---|---|
+| **The app** | Vercel | Next.js — dashboard, API routes, `/api/cron/*` endpoints |
+| **The scheduler** | Railway | Calls those cron endpoints on a schedule |
+
+## Why the scheduler is not on Vercel
+
+Vercel's Hobby plan allows **one cron run per day**:
+
+> Hobby accounts are limited to daily cron jobs. This cron expression
+> (`*/10 * * * *`) would run more than once per day.
+
+The sync needs to run every ten minutes, or "every dollar, within a few minutes"
+is not true. `vercel.json` therefore carries **no crons**, and
+[`worker/index.mjs`](../worker/index.mjs) owns the schedule instead.
+
+Nothing else changed. The `/api/cron/*` endpoints are identical and still
+guarded by `CRON_SECRET`; the worker is only a caller. Moving back to Vercel Cron
+on a Pro plan means restoring the `crons` array — the exact JSON is kept in
+`vercel.json` as a comment — and stopping the Railway service.
+
+The worker is a plain interval loop rather than Railway's own cron feature, so it
+runs the same way on Railway, Render, Fly or a VPS. No provider's cron syntax,
+quota or minimum interval is baked in.
+
+---
+
+## 1. Deploy the app to Vercel
+
+Set these in **Project Settings → Environment Variables**. `.env.local` is not
+uploaded — Vercel needs its own copy.
+
+```
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+ENCRYPTION_KEY
+CRON_SECRET
+NEXT_PUBLIC_APP_URL        https://your-app.vercel.app   ← alert deep links use this
+QBO_CLIENT_ID / QBO_CLIENT_SECRET / QBO_ENVIRONMENT / QBO_REDIRECT_URI
+PLAID_CLIENT_ID / PLAID_SECRET / PLAID_ENV
+SLACK_BOT_TOKEN
+SLACK_DEFAULT_CHANNEL      "#ahn-finance-alerts"   ← quote it, see below
+SLACK_CHANNEL_CRITICAL / SLACK_CHANNEL_WARNING / SLACK_CHANNEL_DIGEST
+```
+
+> **Quote every channel name.** An unquoted value starting with `#` is read as a
+> comment and arrives empty, which silently drops the app back to the incoming
+> webhook — one channel for everything, and messages the bot cannot delete. This
+> cost real debugging time once already (decision 35).
+
+`ENCRYPTION_KEY` must be **the same value** as the one the tokens were encrypted
+with, or every stored OAuth token becomes unreadable and the integrations have to
+be reconnected.
+
+After deploying, update the redirect URI on the Intuit app to the production URL
+and set `QBO_REDIRECT_URI` to match.
+
+---
+
+## 2. Deploy the scheduler to Railway
+
+New project → **Deploy from GitHub repo** → this repository.
+
+[`railway.json`](../railway.json) already sets the start command
+(`npm run worker`) and the health check (`/health`), so the only thing to add is
+the environment:
+
+| Variable | Value | |
+|---|---|---|
+| `APP_URL` | `https://your-app.vercel.app` | required |
+| `CRON_SECRET` | **the same string the app has** | required |
+| `SYNC_INTERVAL_MINUTES` | `10` | optional |
+| `DIGEST_HOUR` | `9` | optional, local hour |
+| `WEEKLY_DIGEST_DAY` | `1` (Monday) | optional |
+| `TZ` | `Asia/Ho_Chi_Minh` | optional — decides what "9am" means |
+
+Without `TZ` the container runs UTC, so a `DIGEST_HOUR` of 9 fires at 16:00 in
+Vietnam. Set it deliberately.
+
+The worker needs no database access, no Supabase keys and no provider
+credentials. It knows a URL and a shared secret, and nothing else — so a
+compromise of the scheduler exposes far less than a compromise of the app.
+
+### Confirming it works
+
+`https://<worker>.up.railway.app/health` returns the state of each job:
+
+```json
+{
+  "ok": true,
+  "target": "https://your-app.vercel.app",
+  "syncEveryMinutes": 10,
+  "jobs": {
+    "sync": { "runs": 42, "failures": 0, "lastRun": "…", "lastStatus": 200, "lastError": null }
+  }
+}
+```
+
+It answers **503** once any job has failed, so Railway's health check restarts a
+worker that has lost the app rather than leaving it quietly dead. A wrong
+`CRON_SECRET` shows up immediately:
+
+```
+sync FAILED  401  {"error":"Unauthorized."}
+```
+
+The logs summarise each run rather than dumping JSON:
+
+```
+sync ok  3 new, 1 duplicates flagged, 3 alerted
+sync ok  nothing to do
+```
+
+---
+
+## 3. Verify the whole deployment
+
+```bash
+npm run smoke -- you@example.com 'password' https://your-app.vercel.app
+```
+
+Signs in and loads every page as a real owner. Nothing else in the test suite
+does this — the unit and integration tests call the calc engine directly, so a
+page that throws while rendering those numbers passes all of them, and
+`next build` misses it too because every page is server-rendered on demand.
+
+---
+
+## Before the first real sync
+
+- **Clear the demo data**: `npm run db:seed -- --reset --reset-only`. It removes
+  only what the seeder wrote — rows keyed `demo-%` and the accounts it created,
+  including their reported balances. Real connector data is untouched.
+- **Check `ALERT_MAX_AGE_DAYS`** (default 3). The first sync of a source
+  backfills ~180 days; without the horizon that is hundreds of alerts in one
+  burst about money that moved months ago. Older rows are still ingested and
+  still counted — they are marked as seen rather than announced.
+- **Run the migrations** against the production database: `npm run db:push`, or
+  paste `supabase/setup-all.sql` into the Supabase SQL editor.

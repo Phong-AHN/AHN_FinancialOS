@@ -76,7 +76,7 @@ Integrations are optional to boot and can be added one at a time on
 | Slack | `SLACK_BOT_TOKEN` + `SLACK_DEFAULT_CHANNEL`, or `SLACK_WEBHOOK_URL` | Optional per-severity routing via `SLACK_CHANNEL_CRITICAL` / `_WARNING` / `_DIGEST` |
 | Email | `RESEND_API_KEY`, `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO` | |
 | SMS | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `ALERT_SMS_TO` | Warning/critical only |
-| Cron | `CRON_SECRET` | Required, or `/api/cron/*` refuses to run |
+| Cron | `CRON_SECRET` | Required, or `/api/cron/*` refuses to run. The schedule runs on Railway, not Vercel — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
 > **Use the Session pooler URI, not the direct one.** Supabase's direct host,
 > `db.<ref>.supabase.co`, publishes only an AAAA record — on an IPv4-only network

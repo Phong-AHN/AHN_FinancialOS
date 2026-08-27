@@ -670,6 +670,40 @@ each file as one statement.
 
 ---
 
+## 38. The schedule moved off Vercel Cron, not off Vercel
+
+Vercel's Hobby plan allows one cron run per day. The sync needs ten-minute
+intervals for "every dollar, within a few minutes" to mean anything, so
+`vercel.json` now carries no crons and `worker/index.mjs` owns the schedule.
+
+**Nothing about the app changed.** The `/api/cron/*` endpoints are identical,
+still guarded by `CRON_SECRET`; the worker is only a caller. The exact `crons`
+array is preserved as a comment in `vercel.json`, so moving back on a Pro plan is
+restoring three lines and stopping one service.
+
+**A loop, not the host's cron.** Railway has its own cron feature, and using it
+would have tied the schedule to one provider's syntax, quotas and minimum
+interval. A plain interval loop runs identically on Railway, Render, Fly or a
+VPS, which matters more than the small cost of an always-on process.
+
+Three details worth keeping:
+
+- **Digests check the wall clock, not an interval.** An interval-based daily
+  digest drifts every redeploy. The loop wakes each minute, fires on the
+  configured hour, and records the day it fired so a restart inside that hour
+  cannot send it twice.
+- **`/health` answers 503 once any job has failed.** Railway restarts a worker
+  that has lost the app instead of leaving it quietly dead — and a scheduler
+  failing silently is the whole risk of moving the schedule out of the app.
+- **The worker holds no credentials beyond a URL and the shared secret.** No
+  database access, no Supabase keys, no provider tokens. Compromising it exposes
+  far less than compromising the app.
+
+Verified end to end: correct secret gives `sync ok  0 new` and `/health` 200;
+a wrong one gives `sync FAILED  401 {"error":"Unauthorized."}` and `/health` 503.
+
+---
+
 ## What was NOT changed
 
 The plan's scope boundary held. No project P&L, no events P&L, no subscription

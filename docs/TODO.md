@@ -60,9 +60,9 @@ QuickBooks (key pair accepted by Intuit), Slack (bot token authenticates as
 
 | | Item |
 |---|---|
-| 🔴 | **Deploy and set the production env vars** on Vercel, including `NEXT_PUBLIC_APP_URL` (alert deep links point at it) and `CRON_SECRET`. |
+| 🔴 | **Deploy the app to Vercel and the scheduler to Railway** — full walkthrough in [docs/DEPLOYMENT.md](DEPLOYMENT.md). Both need `CRON_SECRET` set to the *same* value, and the app needs `NEXT_PUBLIC_APP_URL` (alert deep links point at it). |
 | 🟡 | **Run `npm run smoke` against the deployment** once it is up — `npm run smoke -- you@example.com 'password' https://your-app.vercel.app`. It signs in and loads every page, which nothing else in the suite does. |
-| 🟡 | **Verify the cron actually fires** in production — `vercel.json` schedules sync every 10 min, digests at 09:00 daily and Monday. |
+| 🟡 | **Verify the scheduler fires** in production — open `https://<worker>.up.railway.app/health`. It reports runs and failures per job, and answers 503 once anything has failed. Set `TZ` on the Railway service or the daily digest fires at UTC 09:00, which is 16:00 in Vietnam. |
 | 🟡 | **Delete ~80 stray Slack messages by hand** — they were posted through the incoming webhook, which carries a different bot identity, so `chat.delete` refuses them (`cant_delete_message`). They are all labelled alerts about historical transactions. Removing `SLACK_WEBHOOK_URL` from `.env.local` would stop the webhook identity being usable at all; the bot token covers everything. |
 | 🟡 | **Rotate the password** shared in chat for `pinlo752004@gmail.com`. |
 | 🟡 | **Set opening balances** on the VN bank and VEEM accounts so their derived balances reconcile — the Reconcile page shows the gap. |

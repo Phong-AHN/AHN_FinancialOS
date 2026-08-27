@@ -15,7 +15,8 @@
     "db:seed": "node scripts/seed.mjs",
     "db:sql": "node scripts/bundle-sql.mjs",
     "user:create": "node scripts/create-user.mjs",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "worker": "node worker/index.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.5.2",

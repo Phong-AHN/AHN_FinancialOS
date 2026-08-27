@@ -1,0 +1,14 @@
+{
+  "name": "ahn-financial-os-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Calls the AHN Financial OS cron endpoints on a schedule.",
+  "type": "module",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

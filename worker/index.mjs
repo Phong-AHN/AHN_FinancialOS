@@ -57,6 +57,24 @@ const state = {
   },
 };
 
+/**
+ * The timezone the process is ACTUALLY using.
+ *
+ * Not `process.env.TZ`. That variable is what someone *asked* for, it is not
+ * always readable back (it comes through undefined on Windows, and a host may
+ * set the zone by other means), and it is not what `Date#getHours` consults.
+ * The digest fires on `getHours`, so the health report has to name the zone
+ * that governs it — otherwise it answers "is my digest firing at 9am in
+ * Vietnam?" with an echo of a variable rather than the truth.
+ */
+function resolvedTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 function clampNumber(raw, fallback, min, max) {
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
@@ -183,7 +201,10 @@ createServer((req, res) => {
           syncEveryMinutes: SYNC_INTERVAL_MINUTES,
           digestHour: DIGEST_HOUR,
           weeklyDigestDay: WEEKLY_DIGEST_DAY,
-          timezone: process.env.TZ ?? 'container default (likely UTC)',
+          // What the scheduler is really using, not what TZ was set to.
+          timezone: resolvedTimeZone(),
+          nextDigestLocalTime: `${String(DIGEST_HOUR).padStart(2, '0')}:00 ${resolvedTimeZone()}`,
+          localTimeNow: new Date().toString(),
           ...state,
         },
         null,
@@ -196,7 +217,7 @@ createServer((req, res) => {
 }).listen(PORT, () => {
   log(
     `scheduler up — ${APP_URL}, sync every ${SYNC_INTERVAL_MINUTES}m, ` +
-      `digest at ${String(DIGEST_HOUR).padStart(2, '0')}:00 ${process.env.TZ ?? '(container TZ)'}, ` +
+      `digest at ${String(DIGEST_HOUR).padStart(2, '0')}:00 ${resolvedTimeZone()}, ` +
       `health on :${PORT}`,
   );
 });

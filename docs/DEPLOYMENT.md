@@ -90,9 +90,23 @@ and set `QBO_REDIRECT_URI` to match.
 
 New project → **Deploy from GitHub repo** → this repository.
 
-[`railway.json`](../railway.json) already sets the start command
-(`npm run worker`) and the health check (`/health`), so the only thing to add is
-the environment:
+### Settings
+
+| Setting | Value | Why |
+|---|---|---|
+| **Root Directory** | `worker` | The only setting that is not optional. Without it Railway builds from the repo root, installs Next.js, React and everything else for a worker that imports one Node built-in — and Nixpacks, seeing a Next.js app, may try `next build`, which needs the app's environment and fails confusingly. |
+| **Start Command** | *(leave blank)* | [`worker/railway.json`](../worker/railway.json) sets `node index.mjs`. |
+| **Healthcheck Path** | *(leave blank)* | Same file sets `/health`. |
+| **Builder** | Nixpacks (default) | |
+| **Public Networking** | enable | So `/health` is reachable. Nothing else is served. |
+
+[`worker/`](../worker/) is self-contained — its own `package.json` with **zero
+dependencies** and its own `railway.json`. `npm install` there is instant, and
+the worker cannot accidentally reach into application code.
+
+### Variables
+
+Add these under **Variables**:
 
 | Variable | Value | |
 |---|---|---|
@@ -105,6 +119,16 @@ the environment:
 
 Without `TZ` the container runs UTC, so a `DIGEST_HOUR` of 9 fires at 16:00 in
 Vietnam. Set it deliberately.
+
+Do not set `PORT` — Railway assigns it, and the worker reads it.
+
+`/health` reports the timezone the process is **actually** resolved to, not the
+value of `TZ`. Those can differ, and the one that decides when the digest fires
+is the resolved zone:
+
+```json
+{ "timezone": "Asia/Ho_Chi_Minh", "nextDigestLocalTime": "09:00 Asia/Ho_Chi_Minh" }
+```
 
 The worker needs no database access, no Supabase keys and no provider
 credentials. It knows a URL and a shared secret, and nothing else — so a

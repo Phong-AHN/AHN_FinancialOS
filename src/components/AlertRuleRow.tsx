@@ -75,8 +75,14 @@ export function AlertRuleRow({
     });
   }
 
-  const usesMoneyThreshold = rule.type === 'large_outflow' || rule.type === 'low_balance';
-  const usesNumberThreshold = rule.type === 'low_runway';
+  // A price increase is the only rule with TWO floors, and both have to clear
+  // before it fires: the percentage keeps a 3% rise on a big bill out, and the
+  // annual cost keeps a 40% rise on a $4 tool out. Rendering only one of them
+  // would ship a threshold the owner is told to tune and cannot reach.
+  const isPriceRule = rule.type === 'price_increase';
+  const usesMoneyThreshold =
+    rule.type === 'large_outflow' || rule.type === 'low_balance' || isPriceRule;
+  const usesNumberThreshold = rule.type === 'low_runway' || isPriceRule;
 
   return (
     <tr style={{ opacity: state.enabled ? 1 : 0.55 }}>
@@ -114,7 +120,8 @@ export function AlertRuleRow({
             type="text"
             disabled={!canEdit || saving}
             defaultValue={state.threshold === null ? '' : String(state.threshold / 100)}
-            placeholder="USD"
+            placeholder={isPriceRule ? 'USD/yr' : 'USD'}
+            title={isPriceRule ? 'Least extra annual cost worth an alert' : undefined}
             style={{ width: 110 }}
             onBlur={(e) => {
               const value = e.target.value.replace(/[^0-9.]/g, '');
@@ -127,12 +134,20 @@ export function AlertRuleRow({
           <input
             type="text"
             disabled={!canEdit || saving}
-            defaultValue={state.thresholdNumber === null ? '' : String(state.thresholdNumber)}
-            placeholder="months"
+            defaultValue={
+              state.thresholdNumber === null
+                ? ''
+                : String(isPriceRule ? Math.round(state.thresholdNumber * 100) : state.thresholdNumber)
+            }
+            placeholder={isPriceRule ? '% rise' : 'months'}
+            title={isPriceRule ? 'Smallest rise worth an alert, as a percentage' : undefined}
             style={{ width: 110 }}
             onBlur={(e) => {
               const value = e.target.value.replace(/[^0-9.]/g, '');
-              const num = value ? Number(value) : null;
+              // Stored as a ratio, shown as a percentage. Writing back the
+              // typed number unchanged would read "10" as a 1,000% floor and
+              // silently switch the rule off.
+              const num = value ? (isPriceRule ? Number(value) / 100 : Number(value)) : null;
               if (num !== state.thresholdNumber) void save({ thresholdNumber: num });
             }}
           />

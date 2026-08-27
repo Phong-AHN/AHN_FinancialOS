@@ -28,8 +28,15 @@ import {
   usdMinorOf,
   type UsdRateMap,
 } from '@/lib/calc/engine';
-import { currentMonthRange, formatDayLabel, today, trailingDays, type ISODate } from '@/lib/dates';
-import { formatMoney, formatMonths } from '@/lib/money';
+import {
+  addDays,
+  currentMonthRange,
+  formatDayLabel,
+  today,
+  trailingDays,
+  type ISODate,
+} from '@/lib/dates';
+import { formatMoney, formatMonths, formatPercent } from '@/lib/money';
 import {
   formatDigest,
   formatThresholdAlert,
@@ -39,6 +46,11 @@ import {
 } from '@/lib/alerts/format';
 import { channelConfigured, deliver } from '@/lib/alerts/channels';
 import { loadUsdRates } from '@/lib/fx';
+import {
+  detectRecurringCharges,
+  type Cadence,
+  type RecurringCharge,
+} from '@/lib/subscriptions';
 
 const SEVERITY_ORDER: Record<AlertSeverity, number> = {
   digest: 0,
@@ -410,6 +422,152 @@ export async function runThresholdAlerts(
   }
 
   return summary;
+}
+
+/**
+ * Price-increase alerts - Spec section 8.
+ *
+ * The detector has always found these; nothing announced them. A price rise
+ * nobody opens a page to discover is a price rise that just gets paid, every
+ * month, until someone happens to look.
+ *
+ * TWO THINGS THAT SHAPE THIS:
+ *
+ *   1. It fires once per vendor per price change, and the dedupe key is the
+ *      vendor plus the date the price moved - recorded in `notifications.context`.
+ *      The obvious alternative, the 24-hour cooldown the other threshold rules
+ *      use, would re-announce the same increase every single day for as long as
+ *      the vendor keeps billing the new amount. That is how people learn to
+ *      ignore a channel.
+ *
+ *   2. Both floors must be cleared: the percentage AND the annual cost. A 40%
+ *      rise on a $4/mo tool is $19 a year, and a 3% rise on a payroll bill is
+ *      not a price anyone chose. Either floor alone lets one of those through.
+ */
+export async function runPriceIncreaseAlerts(
+  db: SupabaseClient,
+  options: { asOf?: ISODate } = {},
+): Promise<DispatchSummary> {
+  const summary = emptySummary();
+  const asOf = options.asOf ?? today();
+
+  const { data: rules } = await db
+    .from('alert_rules')
+    .select('*')
+    .eq('enabled', true)
+    .eq('type', 'price_increase');
+
+  const rule = (rules ?? [])[0] as AlertRule | undefined;
+  if (!rule) return summary;
+
+  const minRise = rule.threshold_number === null ? 0.1 : Number(rule.threshold_number);
+  const minAnnualUsdMinor = rule.threshold_minor ?? 0;
+
+  const { charges } = await loadRecurringChargesFor(db, asOf);
+
+  // Only announcements that have already gone out matter, so a failed delivery
+  // is retried on the next run rather than silently swallowed.
+  const { data: alreadySent } = await db
+    .from('notifications')
+    .select('context')
+    .eq('alert_rule_id', rule.id)
+    .eq('status', 'sent');
+
+  const announced = new Set(
+    (alreadySent ?? [])
+      .map((n) => (n as { context?: { priceChangeKey?: string } }).context?.priceChangeKey)
+      .filter(Boolean) as string[],
+  );
+
+  for (const charge of charges) {
+    if (charge.priceChange === null || charge.priceChange < minRise) continue;
+    if (charge.previousAmountUsdMinor === null || charge.priceChangedOn === null) continue;
+
+    const extraPerYear = annualIncreaseOf(charge);
+    if (extraPerYear < minAnnualUsdMinor) continue;
+
+    const key = `${charge.vendorKey}@${charge.priceChangedOn}`;
+    if (announced.has(key)) continue;
+
+    const alert = formatThresholdAlert({
+      kind: 'price_increase',
+      headline: `${charge.vendorName} raised its price ${formatPercent(charge.priceChange, 0)}`,
+      detail:
+        `${formatMoney(charge.previousAmountUsdMinor)} to ${formatMoney(charge.currentAmountUsdMinor)} ` +
+        `per ${cadenceNoun(charge.cadence)}, first billed at the new price on ${charge.priceChangedOn}. ` +
+        `That is ${formatMoney(extraPerYear)} a year more than before, taking this charge to ` +
+        `${formatMoney(charge.annualisedUsdMinor)} a year.`,
+      url: `${appUrl()}/subscriptions`,
+      severity: rule.severity,
+    });
+
+    await persistAndDeliver(
+      db,
+      alert,
+      {
+        channels: [...new Set([...rule.channels, 'in_app' as NotificationChannel])],
+        severity: rule.severity,
+        ruleId: rule.id,
+      },
+      null,
+      summary,
+      { slackChannel: routeSlackChannel(rule.severity) },
+      {
+        priceChangeKey: key,
+        vendorName: charge.vendorName,
+        previousAmountUsdMinor: charge.previousAmountUsdMinor,
+        currentAmountUsdMinor: charge.currentAmountUsdMinor,
+        annualIncreaseUsdMinor: extraPerYear,
+      },
+    );
+    announced.add(key);
+  }
+
+  return summary;
+}
+
+/**
+ * The extra annual cost of the most recent price rise.
+ *
+ * Both amounts are annualised on the SAME cadence, so this is the price move
+ * and nothing else. Comparing a new price against an old annual total would
+ * fold any change in billing frequency into a figure labelled "price".
+ */
+function annualIncreaseOf(charge: RecurringCharge): number {
+  if (charge.previousAmountUsdMinor === null || charge.currentAmountUsdMinor === 0) return 0;
+  const perYear = charge.annualisedUsdMinor / charge.currentAmountUsdMinor;
+  return Math.round((charge.currentAmountUsdMinor - charge.previousAmountUsdMinor) * perYear);
+}
+
+function cadenceNoun(cadence: Cadence): string {
+  return { weekly: 'week', monthly: 'month', quarterly: 'quarter', annual: 'year', irregular: 'billing period' }[
+    cadence
+  ];
+}
+
+/**
+ * The same history window the /subscriptions page reads, loaded here rather
+ * than imported from `@/lib/data` - that module pulls in the page-level Supabase
+ * helpers, and the scheduler calls this with a service-role client.
+ */
+async function loadRecurringChargesFor(
+  db: SupabaseClient,
+  asOf: ISODate,
+): Promise<{ charges: RecurringCharge[] }> {
+  const [{ data }, rates] = await Promise.all([
+    db
+      .from('transactions')
+      .select('*, counterparty:counterparties(id,name,type)')
+      .eq('direction', 'outflow')
+      .gte('txn_date', addDays(asOf, -1_100))
+      .lte('txn_date', asOf)
+      .limit(20_000),
+    loadUsdRates(db, asOf),
+  ]);
+
+  return {
+    charges: detectRecurringCharges((data ?? []) as Transaction[], { asOf, rates }),
+  };
 }
 
 /** Daily / weekly CFO digest (MVP Plan section 7). */

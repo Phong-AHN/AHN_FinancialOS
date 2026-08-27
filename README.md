@@ -192,8 +192,11 @@ and unreadable CSV rows landing in the error bucket rather than importing as zer
   iframe and never touch this application (spec §25).
 - Access/refresh tokens are AES-256-GCM encrypted before reaching the database
   ([crypto.ts](src/lib/crypto.ts)). A leaked database dump is not a leaked bank connection.
-- Row Level Security on all 11 tables. Viewers cannot read payroll rows or integration
-  credentials — enforced by policy, not by the interface.
+- Row Level Security on all 11 tables. Viewers cannot read compensation rows or
+  integration credentials — enforced by policy, not by the interface, and
+  verified by querying as an actual viewer
+  ([`tests/rls.integration.test.ts`](tests/rls.integration.test.ts)). Testing
+  this with the service-role key would prove nothing: it bypasses RLS by design.
 - `audit_logs` has an insert policy and no update or delete policy for any role, so a
   financial edit trail cannot be rewritten after the fact.
 - `/api/cron/*` requires a bearer `CRON_SECRET` and refuses to run without one, rather

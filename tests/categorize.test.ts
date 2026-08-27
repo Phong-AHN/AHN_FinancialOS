@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { categorize, normalizeName } from '@/lib/categorize';
+import { categorize, normalizeName, splitRunTogetherWords } from '@/lib/categorize';
 import { diffForAudit } from '@/lib/audit';
 
 describe('categorize', () => {
@@ -142,5 +142,35 @@ describe('retainers: who is paying whom', () => {
         direction: 'outflow',
       }).category,
     ).toBe('professional_services');
+  });
+});
+
+describe('run-together bank memos', () => {
+  it('recognises payroll a feed concatenated into the preceding word', () => {
+    // Real QuickBooks memo shape: "ACH Electronic Credit" + "GUSTO PAY" with
+    // no separator. Every rule is anchored on \b, and there is no boundary
+    // inside "CreditGUSTO" — so payroll went uncategorised, and payroll is
+    // hidden from viewers by its category alone.
+    const guess = categorize({
+      description: 'ACH Electronic CreditGUSTO PAY 123456',
+      direction: 'outflow',
+    });
+    expect(guess.category).toBe('people');
+    expect(guess.subcategory).toBe('us_payroll');
+  });
+
+  it('still recognises a vendor that capitalises mid-name on purpose', () => {
+    // "ClickUp" is one word, not a missing space. Splitting instead of
+    // searching both spellings would have lost every CamelCase vendor.
+    expect(categorize({ counterpartyName: 'ClickUp', direction: 'outflow' }).category).toBe(
+      'software',
+    );
+  });
+
+  it('leaves an ordinary description alone', () => {
+    expect(splitRunTogetherWords('AUTOMATIC PAYMENT - THANK YOU')).toBe(
+      'AUTOMATIC PAYMENT - THANK YOU',
+    );
+    expect(splitRunTogetherWords('Starbucks')).toBe('Starbucks');
   });
 });

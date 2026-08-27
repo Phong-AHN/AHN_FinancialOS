@@ -62,7 +62,7 @@ describe.skipIf(!CONFIGURED)('dashboard tiles drill down to matching totals', ()
         `   link ${formatMoney(linked)}`,
     );
     expect(linked).toBe(snapshot.monthToDate.inflowUsdMinor);
-  });
+  }, 30_000);
 
   it('Spent MTD tile matches its drill-down', () => {
     const month = currentMonthRange(asOf);

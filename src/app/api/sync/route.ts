@@ -2,7 +2,11 @@ import { requireApiSession } from '@/lib/auth';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { syncAllIntegrations } from '@/lib/sync';
 import { flagCrossSourceDuplicates } from '@/lib/ingest';
-import { runThresholdAlerts, runTransactionAlerts } from '@/lib/alerts/engine';
+import {
+  runPriceIncreaseAlerts,
+  runThresholdAlerts,
+  runTransactionAlerts,
+} from '@/lib/alerts/engine';
 import { today } from '@/lib/dates';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +41,7 @@ export async function POST() {
     const dedup = await flagCrossSourceDuplicates(db, asOf);
     const alerts = await runTransactionAlerts(db, { asOf });
     const thresholds = await runThresholdAlerts(db, { asOf });
+    const priceRises = await runPriceIncreaseAlerts(db, { asOf });
 
     return Response.json({
       ok: true,
@@ -45,9 +50,15 @@ export async function POST() {
       alerts: {
         transactionsAlerted: alerts.transactionsAlerted,
         suppressedAsBackfill: alerts.suppressedAsBackfill,
-        notificationsSent: alerts.notificationsSent + thresholds.notificationsSent,
-        notificationsFailed: alerts.notificationsFailed + thresholds.notificationsFailed,
-        errors: [...alerts.errors, ...thresholds.errors].slice(0, 5),
+        notificationsSent:
+          alerts.notificationsSent +
+          thresholds.notificationsSent +
+          priceRises.notificationsSent,
+        notificationsFailed:
+          alerts.notificationsFailed +
+          thresholds.notificationsFailed +
+          priceRises.notificationsFailed,
+        errors: [...alerts.errors, ...thresholds.errors, ...priceRises.errors].slice(0, 5),
       },
     });
   } catch (err) {

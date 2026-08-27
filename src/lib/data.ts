@@ -18,6 +18,12 @@ import type {
 import { computeSnapshot, type FinancialSnapshot, type UsdRateMap } from '@/lib/calc/engine';
 import { loadUsdRates } from '@/lib/fx';
 import { addDays, today, type ISODate } from '@/lib/dates';
+import {
+  detectRecurringCharges,
+  summariseSubscriptions,
+  type RecurringCharge,
+  type SubscriptionSummary,
+} from '@/lib/subscriptions';
 
 /** Trailing window the dashboard loads. Covers the 3-month burn plus headroom. */
 const SNAPSHOT_WINDOW_DAYS = 400;
@@ -256,4 +262,48 @@ export async function loadCategories(db: SupabaseClient): Promise<string[]> {
     if (row.category) set.add(row.category);
   }
   return [...set].sort();
+}
+
+/**
+ * History the recurring-charge detector reads - Spec section 8.
+ *
+ * Deliberately wider than the dashboard's window. An annual subscription needs
+ * two renewals before it can be told apart from a one-off, and at 400 days it
+ * would never gather them: the yearly licences, the ones most worth catching,
+ * would be the exact charges that stayed invisible.
+ */
+const SUBSCRIPTION_WINDOW_DAYS = 1_100; // three years, enough for two annual renewals
+
+export async function loadRecurringCharges(
+  db: SupabaseClient,
+  asOf: ISODate = today(),
+): Promise<{
+  charges: RecurringCharge[];
+  summary: SubscriptionSummary;
+  scannedFrom: ISODate;
+  scanned: number;
+}> {
+  const scannedFrom = addDays(asOf, -SUBSCRIPTION_WINDOW_DAYS);
+
+  const [txnRes, rates] = await Promise.all([
+    db
+      .from('transactions')
+      .select(TXN_SELECT)
+      .eq('direction', 'outflow')
+      .gte('txn_date', scannedFrom)
+      .lte('txn_date', asOf)
+      .order('txn_date', { ascending: true })
+      .limit(20_000),
+    loadUsdRates(db, asOf),
+  ]);
+
+  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+  const charges = detectRecurringCharges(transactions as Transaction[], { asOf, rates });
+
+  return {
+    charges,
+    summary: summariseSubscriptions(charges, asOf),
+    scannedFrom,
+    scanned: transactions.length,
+  };
 }

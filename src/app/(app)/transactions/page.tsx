@@ -49,7 +49,6 @@ export default async function TransactionsPage({
 }: {
   searchParams: Record<string, string | string[] | undefined>;
 }) {
-  await requireSession();
   const supabase = createSupabaseServerClient();
 
   const page = Math.max(1, Number(str(searchParams.page) ?? '1') || 1);
@@ -69,7 +68,12 @@ export default async function TransactionsPage({
     offset: (page - 1) * PAGE_SIZE,
   };
 
-  const [{ rows, total }, totals, accountsRes, categories, rates] = await Promise.all([
+  // The session check rides along with the data rather than gating it: RLS
+  // returns nothing without a valid session, and `redirect()` throws before
+  // anything renders. Sequencing it first added a Tokyo round trip to every
+  // page load for no extra safety.
+  const [, { rows, total }, totals, accountsRes, categories, rates] = await Promise.all([
+    requireSession(),
     loadTransactions(supabase, filters),
     // Across everything the filter matches, not just this page - so a tile that
     // links here is confirmed by what the reader sees, not contradicted by it.

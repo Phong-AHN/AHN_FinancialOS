@@ -11,14 +11,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // read, so show the setup checklist instead of a stack trace.
   if (!isSupabaseConfigured()) return <SetupRequired />;
 
-  const session = await getSession();
-  if (!session) redirect('/login');
-
+  // Both in flight at once. The badge count does not depend on the session -
+  // the same cookie-scoped client answers it, and RLS filters it either way -
+  // so awaiting them in sequence just added one Tokyo round trip to the front
+  // of every page in the app.
   const supabase = createSupabaseServerClient();
-  const { count } = await supabase
-    .from('transactions')
-    .select('id', { count: 'exact', head: true })
-    .eq('reconciliation_status', 'possible_duplicate');
+  const [session, { count }] = await Promise.all([
+    getSession(),
+    supabase
+      .from('transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('reconciliation_status', 'possible_duplicate'),
+  ]);
+
+  if (!session) redirect('/login');
 
   return (
     <div className="flex h-screen overflow-hidden">

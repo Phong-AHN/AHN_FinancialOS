@@ -69,7 +69,7 @@ describe.skipIf(!ENABLED)('alert pipeline end-to-end (delivers real messages)', 
 
     if (error) throw new Error(error.message);
     accountId = (data as { id: string }).id;
-  });
+  }, 30_000);
 
   afterAll(async () => {
     // Remove the transactions; the notifications they produced stay as proof.

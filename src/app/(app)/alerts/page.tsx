@@ -30,14 +30,20 @@ export const dynamic = 'force-dynamic';
  * them. Every attempt is recorded with its channel, status and error.
  */
 export default async function AlertsPage() {
-  const session = await requireSession();
+  // The session check and the data query start together. `requireSession()`
+  // costs a round trip to the Auth server in Tokyo, and running it first meant
+  // every page waited for it before asking for a single row. RLS is the real
+  // boundary - a request without a valid session gets nothing back from these
+  // queries anyway - and `redirect()` throws before anything renders, so a
+  // signed-out visitor still sees the login screen and never sees data.
   const supabase = createSupabaseServerClient();
-  const canEdit = session.user.role === 'owner';
 
-  const [rules, notifications] = await Promise.all([
+  const [session, rules, notifications] = await Promise.all([
+    requireSession(),
     loadAlertRules(supabase),
     loadNotifications(supabase, 80),
   ]);
+  const canEdit = session.user.role === 'owner';
 
   const channels: NotificationChannel[] = ['slack', 'email', 'sms'];
   const channelStatus = Object.fromEntries(

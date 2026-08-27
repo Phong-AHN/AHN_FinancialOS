@@ -75,6 +75,7 @@ const pages = [
   ['/accounts', ['Total cash', 'Provider says', 'Our records']],
   ['/transactions', ['Transactions', 'Counterparty']],
   ['/reconcile', ['Reconcile', 'Possible duplicates', 'Re-run categorisation']],
+  ['/subscriptions', ['Recurring charges', 'Monthly recurring', 'Every recurring charge']],
   ['/alerts', ['Rules', 'End-to-end test', 'Delivery log']],
   ['/integrations', ['QuickBooks', 'Plaid', 'Stripe']],
   ['/import', ['Import a statement']],
@@ -129,8 +130,6 @@ console.log('\nRendered runway block:');
 for (const l of ['If revenue stopped', 'At current net burn', 'Worst month on record']) {
   console.log('  ' + grab(l));
 }
-console.log('\nRendered headline tile:');
-console.log('  ' + grab('Runway if revenue stopped'));
 
 console.log('');
 if (failures) {

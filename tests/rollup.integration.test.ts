@@ -49,7 +49,7 @@ describe.skipIf(!CONFIGURED)('multi-source rollup (live database)', () => {
     accounts = (accountsRes.data ?? []) as FinancialAccount[];
     transactions = (txnRes.data ?? []) as Transaction[];
     rates = await loadUsdRates(db, today());
-  });
+  }, 30_000);
 
   it('reports which sources are present', () => {
     // Not an assertion about how many. A database holding one connector's data

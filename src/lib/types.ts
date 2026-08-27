@@ -43,7 +43,8 @@ export type AlertType =
   | 'low_runway'
   | 'low_balance'
   | 'daily_summary'
-  | 'weekly_summary';
+  | 'weekly_summary'
+  | 'price_increase';
 export type AlertSeverity = 'info' | 'warning' | 'critical' | 'digest';
 export type NotificationChannel = 'slack' | 'email' | 'sms' | 'in_app';
 export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'skipped';
@@ -164,6 +165,14 @@ export interface NotificationRow {
   status: NotificationStatus;
   error: string | null;
   sent_at: string | null;
+  /**
+   * Snapshot of what the alert was about, added by migration 0004.
+   *
+   * It keeps the delivery log readable after the transaction it referred to is
+   * gone, and it is what price-increase alerts use to remember which rises they
+   * have already announced.
+   */
+  context: Record<string, unknown> | null;
   created_at: string;
 }
 

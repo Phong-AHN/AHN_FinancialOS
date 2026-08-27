@@ -765,11 +765,299 @@ when the app is deployed, and the remaining advisory is documented above.
 
 ---
 
+## 41. A viewer could read payroll — the policy existed and did not work
+
+Spec section 23 requires payroll to be restricted. The read policy asked
+`is_sensitive_category(category)` against a word list — `payroll`, `salary`,
+`wage`, and so on.
+
+But the categoriser files a pay run as:
+
+```
+category    = 'people'
+subcategory = 'us_payroll'
+```
+
+`'people'` matches none of those words, so **every payroll row was readable by
+every viewer**. Proven with a real viewer session against the live database:
+six of seven policies held, and the one that mattered most did not.
+
+That is the worst shape a security bug takes. The policy was present, enabled,
+and read as though it worked. Only querying as an actual viewer — with the anon
+key and their token, never the service-role key, which bypasses RLS by design —
+showed otherwise.
+
+Migration `0007` fixes two things:
+
+1. **`subcategory` is checked as well as `category`.** The payroll signal lives
+   there; a rule that ignores it can only half-work.
+2. **The whole `people` category is sensitive**, not only rows whose text
+   happens to say "payroll". It holds salaries, contractor payments, commissions
+   and bonuses — all restricted under section 23 — and an exact category match
+   cannot drift the way a word list does.
+
+`tests/rls.integration.test.ts` now runs the same eight checks on demand
+(`RLS_TEST=1`), including one that confirms the owner *can* see the row the
+viewer cannot — otherwise every other assertion could pass for the wrong reason.
+
+## 42. A subscription is a price, not just a rhythm
+
+The first live run of the section 8 detector found 16 recurring charges, and
+reading the list rather than the pass/fail found three things wrong with it.
+
+**Internal transfers were being sold as subscriptions.** `AUTOMATIC PAYMENT -
+THANK` at $2,078.50/mo, `CD DEPOSIT .INITIAL.` at $1,000/mo and `CREDIT CARD
+3333 PAYMENT` at $25/mo added up to $3,103 of an $11,152 monthly recurring
+headline — 28% of the number, and every dollar of it moving between AHN's own
+accounts. Worse, the card's own charges were already counted, so the settlement
+was double counting spend that appeared elsewhere in the same list.
+
+**Vendors had no names.** The detector showed `Purchase 143`, a QuickBooks
+fallback memo, where the joined counterparty said `Hicks Hardware`.
+
+**Regular timing was mistaken for a price.** `Bob's Burger Joint` appeared as a
+weekly subscription with a "391% price increase"; `Hicks Hardware` as one with
+"-81%". Neither is a subscription. They are vendors used most weeks at whatever
+that week's purchase cost — a rhythm with no price behind it, and a "price rose
+391%" claim about a vendor that never had a fixed price to raise.
+
+So `scoreAmountStability` was added beside `scoreRegularity`, and confidence is
+now the product of the two. The rule doing the work is that **a price point is a
+value that REPEATS**: an amount charged exactly once is a purchase, not a price.
+A first attempt anchored on the two most recent amounts instead, which quietly
+handed every vendor two free perfect scores — with three or four charges that
+floor alone cleared the threshold, and the scattered vendors stayed. The unit
+test written to pin the behaviour is what caught it.
+
+Live result: 16 charges → 11, and $11,152/mo → $8,049/mo. The three removed were
+all things nobody could have cancelled.
+
+## 43. `potentialAnnualSavings` was counting money already not being spent
+
+The summary offered a savings figure built from the lapsed charges. But lapsed
+means the vendor has stopped billing — that money is not leaving the account, so
+there is no saving left to capture, and the figure sat next to a monthly total
+that had already excluded every one of them.
+
+It is now `lapsedAnnualUsdMinor`, and the page labels it "Stopped billing" with
+the reason it matters: a charge that stopped is either a cancellation nobody
+wrote down, or **a failed payment about to cost you the service**. The second
+reading is the one worth acting on, and calling it a saving hides it completely.
+
+The same restraint already applied to duplicates and still does: two tools in
+one category might both be needed, so nothing there is counted as a saving
+either. The page states plainly what payment data cannot answer — who owns a
+tool, whether anyone uses it, what notice cancelling needs.
+
+## 44. Payroll was visible to viewers again, through a word boundary
+
+Decision 41 hid payroll from viewers by category. The subscriptions page then
+showed `ACH Electronic CreditGUSTO PAY` at $5,850/mo — and its category was
+`uncategorized`, so the policy never applied to it. $5,850 of monthly payroll
+was readable by every viewer.
+
+The payroll rule was not missing. `/(gusto|adp|deel|rippling|...)/i` was
+there and correct. The feed had concatenated two fields with no separator, and
+there is no word boundary between the `t` of "Credit" and the `G` of "GUSTO", so
+the rule never fired. A rule can be right and still never run.
+
+The fix splits on a lower-to-upper transition — but searches the split spelling
+**alongside** the original rather than instead of it. Replacing outright broke
+`ClickUp` into `Click Up` and lost every CamelCase vendor, which an existing
+test caught immediately.
+
+Verified the way decision 41 was: a real viewer session through the anon key
+sees **132 of 135** transactions, and its recurring total reads $2,199.04 where
+the owner's reads $8,049.04. The $5,850 is absent from the query result, not
+hidden in the markup.
+
+The residual risk is worth stating: payroll that no rule recognises stays
+`uncategorized`, and uncategorized is not sensitive. Category-based
+confidentiality is only ever as good as the categoriser.
+
+## 45. The rule engine had started reading its own handwriting as a verdict
+
+The recategorise pass refuses to overwrite a human correction, which it detects
+by looking for an audit-log entry on the row. Broadening that check from "an
+entry on `category`" to "any entry" — correct in itself, since someone who fixes
+`is_internal_transfer` by hand has ruled on the row — immediately locked the
+pass out of every row it had ever touched, because it writes audit entries of
+its own. It reported `protected: 9, updated: 0` on rows it had just changed.
+
+Left alone, that would have frozen in every miscategorisation the rules later
+learned to fix. `RULE_AUDIT_REASON` is now one exported constant shared by the
+writer and the reader, so the two cannot drift apart, and `isAutomatedAudit`
+treats anything that is not unmistakably the pass's own prefix as a person's
+judgement — protection is the safe default. Proven by running the pass twice:
+9 updated then 0 updated, 0 protected both times.
+
+The same investigation found the patch itself was dropping
+`is_internal_transfer` — the single field that decides whether a row counts
+toward revenue, expense, burn and break-even. That is why the credit-card
+settlements above stayed unflagged no matter how many times the pass ran.
+
+## 46. The price-increase alert, and two ways it could have become noise
+
+Spec section 8 finds price rises; until now nothing announced them, so a rise
+was visible only to whoever opened `/subscriptions`. A price rise nobody opens a
+page to discover is a price rise that simply gets paid.
+
+**It is deduped by event, not by time.** Every other threshold rule uses a
+24-hour cooldown. Applied here that would re-announce the same increase every
+single day for as long as the vendor kept billing the new amount — the fastest
+way to teach someone to ignore a channel. Instead each alert records
+`{vendorKey}@{priceChangedOn}` in `notifications.context`, and only entries with
+status `sent` count, so a failed delivery is retried rather than silently
+swallowed.
+
+**Both floors must clear, not either.** A 40% rise on a $4/mo tool is $19 a
+year; a 3% rise on a $70k payroll bill is not a price anyone chose. Either floor
+on its own admits one of those. Defaults: 10% AND $50/year.
+
+**It runs on its own daily endpoint, not on the sync tick.** A measured run
+varied between 1.8 and 46 seconds — the spread is in write latency, not in any
+single request, which the 10-second per-request timeout already bounds. The sync
+route already runs four steps under a 60-second ceiling, so stacking this on top
+was a timeout that would have taken the ordinary money-in and money-out alerts
+down with it. And rescanning three years of ledger every ten minutes to catch a
+monthly event is waste regardless.
+
+Two things the work turned up on the way:
+
+- The worker looked up `state.jobs[name]` without a fallback, so a job name with
+  no slot would throw inside a timer callback — once a day, in production. Job
+  slots are now created on demand.
+- `NotificationRow` had no `context` field even though migration 0004 added the
+  column and the engine had been writing to it since. Now typed.
+
+## 47. A test that passed without running the code
+
+The first version of the price-increase test was three green assertions over a
+feature that had never fired once. The live ledger holds exactly one price rise,
+Uber at 17%, and 17% of a $6 fare is $26 a year — correctly below the $50 floor.
+Nothing sent, nothing asserted about sending, all green.
+
+The rewrite prints every candidate with the floor that rejected it, and then
+lowers the rule's own thresholds to force a real delivery before restoring them
+in `afterAll`. That exercises the delivery path *and* proves the two threshold
+columns actually control the behaviour — which matters, because the TODO tells
+the owner to tune exactly those two numbers.
+
+Result: 2 sent, 1 skipped (email unconfigured), 0 sent on the second run.
+
+The percentage floor is stored as a ratio and shown as a percentage, so the
+round trip was verified end to end rather than assumed: typing `15` stores
+`0.15`, renders back as `15%`, and writes an audit row. Getting that backwards
+would have read `10` as a 1,000% floor and switched the rule off in silence.
+
+## 48. A click cost a second, and almost none of it was the database
+
+Every page took roughly a second to answer. Measured rather than guessed, and
+the measurement is the whole story: one round trip from Vietnam to the Supabase
+project in Tokyo costs about **145ms**, and an empty `select * from companies`
+takes exactly that. The time was distance, not work — so the fix was to make
+fewer trips, not faster queries.
+
+Counting the trips before any page data was fetched:
+
+| Where | Call |
+|---|---|
+| middleware | `auth.getUser()` |
+| layout | `getSession()` → `auth.getUser()`, then the `users` row |
+| layout | `possible_duplicate` count |
+| page | `requireSession()` → `getSession()` **again** → `auth.getUser()`, `users` |
+
+`auth.getUser()` ran **three times per click**, each a real network call to the
+Auth server — it validates the token rather than decoding it locally. Four
+changes, in order of what they returned:
+
+1. **`getSession()` is memoised per request** with React's `cache()`. The layout
+   and the page had been asking the same question twice. Not cached across
+   requests: proven by a global sign-out, which is rejected on the very next
+   navigation.
+
+2. **The middleware refreshes lazily.** Its job is keeping the cookie alive, not
+   authorising anything — every guarded page verifies for itself. It now calls
+   `getSession()`, which reads the cookie locally and only goes to the network
+   when the token has actually expired. It had been paying 145ms on requests
+   whose token had another 59 minutes to live.
+
+3. **Verification and the role lookup run together.** The `users` row is keyed on
+   a user id the cookie already carries, so the lookup no longer waits a full
+   round trip to be told an id it had. The local read is never trusted: the
+   verified id is compared against the claimed one, and a mismatch is treated as
+   signed out. A JWT with a rewritten `sub` gets `/login`.
+
+4. **The session check no longer gates the page query.** Every page did
+   `await requireSession()` and only then asked for rows. RLS is the real
+   boundary and `redirect()` throws before anything renders, so the check
+   decides the outcome — it no longer needs to decide the timing.
+
+Result, median over five runs per page:
+
+| | before | after |
+|---|---|---|
+| `/` | 1094ms | 490ms |
+| `/transactions` | 1043ms | 476ms |
+| `/accounts` | 997ms | 427ms |
+| `/audit` | 807ms | 362ms |
+| **all nine pages** | **7606ms** | **3474ms** (−54%) |
+
+Verified afterwards, not assumed: owner reaches all nine pages, signed-out
+requests redirect on all nine, a viewer is bounced from all three owner-only
+pages, payroll stays invisible to the viewer, and a globally revoked session
+stops working immediately.
+
+## 49. The deploy region was about to undo all of it
+
+There was no `vercel.json`, so a deploy would have landed in Vercel's default
+`iad1` — Washington DC — while the database sits in `ap-northeast-1`, Tokyo.
+Every query would have gone Washington → Tokyo → Washington, with the reader's
+own hop from Vietnam to Washington on top. **The app would have been slower
+deployed than it is on a laptop in Hanoi**, and no amount of query tuning would
+have shown up next to that.
+
+`vercel.json` now pins `hnd1`, beside the database. The shape inverts: the
+server-to-database hop drops to single-digit milliseconds and the reader pays
+one ~60ms hop for the whole page, however many queries it makes. The Railway
+worker needs the same region for the same reason — it calls the app's own cron
+endpoints.
+
+The rule worth keeping is that the app and the database share a region. Which
+region they share matters far less than that they share one.
+
+## 50. Two page queries were shipping rows across the ocean to count them
+
+`/integrations` pulled up to 20,000 `source_system` values and tallied them in
+JavaScript, to render three numbers. It now asks Postgres for three counts, in
+parallel, alongside the integrations query that used to run before it. 908ms →
+413ms.
+
+The counted sources are typed as the provider keys the cards actually render, so
+adding a card without counting it — or counting a source nothing displays — is a
+compile error rather than a quietly missing figure.
+
+Three indexes were added for the queries that run most often: `source_system`
+for those counts, `(direction, txn_date desc)` for the recurring-charge scan
+that reads three years of outflows, and `(alert_rule_id, status)` for the
+price-increase dedupe. None of them changes a number anyone can feel at 135
+transactions. They are for the ledger AHN will actually have — a sequential scan
+over 135 rows and over 200,000 rows look identical right up until they do not.
+
+`loadTransactionTotals` still sums up to 20,000 rows in JavaScript, and was left
+alone deliberately. Moving it into SQL means writing the filter logic a second
+time, and the entire reason that function exists is that the totals must agree
+with the rows on screen. Two implementations of one filter is how they stop
+agreeing.
+
+---
+
 ## What was NOT changed
 
-The plan's scope boundary held. No project P&L, no events P&L, no subscription
-intelligence, no time tracking, no revenue simulator, no budget vs. actual, no AI CFO
-layer, no 7-role RBAC — all Phase 2/3 per plan §8, and all still requiring their own
+The plan's week-1 boundary held. Subscription intelligence (spec §8) has since been
+built as the first Phase 2 item — see decisions 42-44. Still untouched: project P&L,
+events P&L, time tracking, revenue simulator, budget vs. actual, the AI CFO layer and
+the full 7-role RBAC — all Phase 2/3 per plan §8, and all still requiring their own
 tables.
 
 Two things were done to make those cheap to add later, at no cost to week 1:

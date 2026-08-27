@@ -2,11 +2,22 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
 /**
- * Refreshes the Supabase session cookie on every request.
+ * Refreshes the Supabase session cookie when it is close to expiring.
  *
  * Server Components cannot write cookies, so without this the access token
  * would expire mid-session and the CEO would be bounced to the login screen
  * while reading the dashboard.
+ *
+ * WHY NOT `getUser()` HERE. That call validates the token against the Auth
+ * server in Tokyo - about 159ms measured from Vietnam - and it ran on every
+ * single request, including the ones whose token had another 59 minutes to
+ * live. `getSession()` reads the cookie and decodes it locally, and only goes
+ * to the network when the token has actually expired and needs exchanging.
+ *
+ * This is a refresh, not an authorisation check, so the local read is the right
+ * tool: every guarded page and route handler still calls `getUser()` itself
+ * through `getSession()` in `@/lib/auth`, which is where the token is actually
+ * verified. Nothing is trusted on the strength of this function.
  */
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request: { headers: request.headers } });
@@ -33,7 +44,8 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  // Refreshes in place when expired; a plain cookie read when not.
+  await supabase.auth.getSession();
   return response;
 }
 

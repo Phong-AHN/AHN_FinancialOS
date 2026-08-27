@@ -74,7 +74,7 @@ export function formatTransactionAlert(
 }
 
 export interface ThresholdAlertInput {
-  kind: 'low_runway' | 'low_balance' | 'large_outflow';
+  kind: 'low_runway' | 'low_balance' | 'large_outflow' | 'price_increase';
   headline: string;
   detail: string;
   url: string;

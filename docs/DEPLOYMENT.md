@@ -28,20 +28,67 @@ already elsewhere: `maxDuration` is declared per route with
 `export const maxDuration = 60`, and the security headers are in
 `next.config.mjs`.
 
-### Moving back to Vercel Cron on a Pro plan
+### Region: put the app next to the database
 
-Create `vercel.json` with exactly this, and stop the Railway service:
+`vercel.json` pins the deployment to **`hnd1` (Tokyo)** because the Supabase
+project lives in **`aws-0-ap-northeast-1`**, which is also Tokyo. This is not a
+preference. It is the single largest thing affecting how fast the app feels.
+
+Measured from Vietnam against the Tokyo database, one round trip costs about
+**145ms** — an empty `select * from companies` takes that long, and so does
+anything else, because the time is distance, not work. A page that makes four
+sequential round trips spends 580ms waiting on the network and a few
+milliseconds computing.
+
+Vercel defaults to `iad1` (Washington DC). Left alone, every query would travel
+Washington → Tokyo → Washington, and every page would travel Vietnam →
+Washington on top of that. The app would be slower deployed than it is running
+on a laptop in Hanoi.
+
+With the app in Tokyo the shape inverts:
+
+| | Server in Washington (default) | Server in Tokyo (`hnd1`) |
+|---|---|---|
+| Server → database, per query | ~170ms | ~1–5ms |
+| Person → server, per page | ~230ms | ~60ms |
+| A page making 4 queries | ~910ms | ~80ms |
+
+The queries stop mattering; only the one hop from the reader to the server does.
+
+**Set the Railway worker to Tokyo as well** (Settings → Region). It calls the
+app's own `/api/cron/*` endpoints, so a worker on another continent pays the
+same tax on every scheduled run.
+
+If AHN later moves the Supabase project closer to Vietnam — Singapore
+(`ap-southeast-1`) is the nearest region — move the Vercel region to `sin1` in
+the same change. The rule is that the app and the database share a region; which
+region they share matters far less.
+
+## Moving back to Vercel Cron on a Pro plan
+
+Add the `crons` block to the existing `vercel.json` — keep the `regions`
+setting — and stop the Railway service:
 
 ```json
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["hnd1"],
   "crons": [
     { "path": "/api/cron/sync", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/digest?period=daily", "schedule": "0 2 * * *" },
-    { "path": "/api/cron/digest?period=weekly", "schedule": "0 2 * * 1" }
+    { "path": "/api/cron/digest?period=weekly", "schedule": "0 2 * * 1" },
+    { "path": "/api/cron/price-increases", "schedule": "0 3 * * *" }
   ]
 }
 ```
+
+The price-increase sweep is deliberately its own daily job rather than part of
+the sync. It re-reads three years of outflows to rebuild the recurring-charge
+picture, and a price changes monthly at most; folding it into a ten-minute tick
+would spend most of that tick's 60-second budget rediscovering the same answer,
+and a slow run would take the ordinary money-in and money-out alerts down with
+it. It deduplicates by vendor and change date, so running once a day still
+announces every rise exactly once.
 
 Vercel cron schedules are **UTC and not configurable**, so `0 2 * * *` is 09:00
 in Vietnam. That is the one thing the Railway worker does better: it takes a `TZ`

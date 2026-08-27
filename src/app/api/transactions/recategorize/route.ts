@@ -1,7 +1,7 @@
 import { requireApiSession } from '@/lib/auth';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { categorize } from '@/lib/categorize';
-import { recordAudit } from '@/lib/audit';
+import { RULE_AUDIT_REASON, isAutomatedAudit, recordAudit } from '@/lib/audit';
 import type { AuditLog, Transaction } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -16,8 +16,9 @@ export const maxDuration = 60;
  *
  * TWO THINGS IT MUST NEVER DO:
  *
- *   1. Overwrite a human correction. Any row with an audit-log entry on
- *      `category` was decided by a person, and a rule does not outrank that.
+ *   1. Overwrite a human correction. Any row carrying an audit-log entry a
+ *      person wrote was decided by a person, and a rule does not outrank that.
+ *      Its own past entries are excluded, or it would freeze itself out.
  *   2. Touch a row that already has a category. Only `uncategorized` and null
  *      are eligible, so re-running is safe and idempotent.
  *
@@ -53,14 +54,25 @@ export async function POST() {
   }
 
   // One query for every human decision, rather than one per row.
+  //
+  // Any audited field counts, not just `category`: somebody who corrected
+  // `is_internal_transfer` by hand has ruled on this row, and a rule does not
+  // outrank that. But this pass writes audit entries of its own, so it has to
+  // skip its own handwriting — otherwise it reads its last run as a human
+  // verdict and can never revisit a row again, which is precisely what would
+  // freeze in every miscategorised row the rules have since learned to fix.
   const { data: edits } = await db
     .from('audit_logs')
-    .select('record_id')
+    .select('record_id,reason')
     .eq('table_name', 'transactions')
-    .eq('field', 'category')
     .in('record_id', candidates.map((c) => c.id));
 
-  const humanDecided = new Set((edits ?? []).map((e) => (e as Pick<AuditLog, 'record_id'>).record_id));
+  const humanDecided = new Set(
+    (edits ?? [])
+      .map((e) => e as Pick<AuditLog, 'record_id' | 'reason'>)
+      .filter((e) => !isAutomatedAudit(e.reason))
+      .map((e) => e.record_id),
+  );
 
   // Counterparty names sharpen the guess; fetch them in one go.
   const counterpartyIds = [...new Set(candidates.map((c) => c.counterparty_id).filter(Boolean))] as string[];
@@ -101,6 +113,12 @@ export async function POST() {
       subcategory: row.subcategory ?? guess.subcategory,
       is_subscription: guess.isSubscription,
       is_recurring: guess.isRecurring,
+      // The most consequential field the categoriser produces, and it used to
+      // be dropped here. `is_internal_transfer` decides whether a row counts
+      // toward revenue, expense, burn and break-even — so a credit-card
+      // payment left unflagged is counted as spend on top of the charges it
+      // settles, and shows up again as a "recurring subscription".
+      is_internal_transfer: guess.isInternalTransfer,
     };
 
     const { error: updateError } = await db.from('transactions').update(patch).eq('id', row.id);
@@ -118,7 +136,7 @@ export async function POST() {
           field: 'category',
           old_value: row.category,
           new_value: guess.category,
-          reason: `Re-ran categorisation rules (matched "${guess.matchedRule}")`,
+          reason: `${RULE_AUDIT_REASON} (matched "${guess.matchedRule}")`,
         },
       ],
       auth.session.user,

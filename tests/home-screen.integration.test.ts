@@ -53,7 +53,7 @@ describe.skipIf(!CONFIGURED)('CEO home screen answers spec §21 (live database)'
     transactions = (txnRes.data ?? []) as Transaction[];
     const rates = await loadUsdRates(db, asOf);
     snapshot = computeSnapshot(accounts, transactions, asOf, rates);
-  });
+  }, 30_000);
 
   it('Q1 — how much cash do we have', () => {
     expect(Number.isInteger(snapshot.cash.totalUsdMinor)).toBe(true);

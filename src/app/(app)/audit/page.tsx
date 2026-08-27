@@ -21,17 +21,24 @@ export default async function AuditPage({
 }: {
   searchParams: Record<string, string | undefined>;
 }) {
-  await requireOwner();
+  // The owner check and the query start together. `requireOwner()` costs a
+  // round trip to Tokyo, and gating the query behind it added that to every
+  // load. A viewer who reaches here still gets redirected before anything
+  // renders, and RLS decides what the query returns either way - so the check
+  // still decides the outcome, it just no longer decides the timing.
   const supabase = createSupabaseServerClient();
 
   const page = Math.max(1, Number(searchParams.page ?? '1') || 1);
   const offset = (page - 1) * PAGE_SIZE;
 
-  const { data, count } = await supabase
-    .from('audit_logs')
-    .select('*', { count: 'exact' })
-    .order('changed_at', { ascending: false })
-    .range(offset, offset + PAGE_SIZE - 1);
+  const [, { data, count }] = await Promise.all([
+    requireOwner(),
+    supabase
+      .from('audit_logs')
+      .select('*', { count: 'exact' })
+      .order('changed_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1),
+  ]);
 
   const entries = (data ?? []) as AuditLog[];
   const total = count ?? 0;

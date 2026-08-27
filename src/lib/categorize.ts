@@ -40,7 +40,7 @@ const RULES: Rule[] = [
   // ── Internal movement ────────────────────────────────────────────────────
   {
     id: 'internal-transfer',
-    patterns: /\b(internal transfer|transfer to (own|savings)|book transfer|inter[- ]?account|own account)\b/i,
+    patterns: /\b(internal transfer|transfer to (own|savings)|book transfer|inter[- ]?account|own account|automatic payment|payment - thank you|payment thank you|credit card \d* ?payment|card payment|cd deposit|deposit to savings|online transfer|wire to own)\b/i,
     category: 'transfer',
     isInternalTransfer: true,
     counterpartyType: 'internal',
@@ -354,6 +354,27 @@ const SOURCE_CATEGORIES: Partial<Record<SourceSystem, Omit<CategoryGuess, 'match
   },
 };
 
+/**
+ * Put the spaces back into bank memos that ran two words together.
+ *
+ * Real feeds concatenate fields with nothing between them, so a payroll run
+ * arrives as "ACH Electronic CreditGUSTO PAY". Every rule here is anchored on
+ * word boundaries, and there is no boundary between "t" and "G" - so the rule
+ * that names Gusto, ADP and the rest simply never fired on it.
+ *
+ * That was not a cosmetic miss. Payroll rows are hidden from viewers by their
+ * CATEGORY, so payroll a rule fails to recognise is payroll every viewer can
+ * read. Splitting on a lower-to-upper transition fixes the whole class rather
+ * than adding one vendor to one list.
+ *
+ * The split result is searched ALONGSIDE the original, never instead of it:
+ * plenty of vendors capitalise mid-name on purpose, and splitting "ClickUp"
+ * into "Click Up" would lose them.
+ */
+export function splitRunTogetherWords(text: string): string {
+  return text.replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+
 export function categorize(input: CategorizeInput): CategoryGuess {
   // A VEEM or payroll export is payroll by definition. Only outflows, though -
   // money arriving on a payroll rail is a refund or a top-up, not a salary.
@@ -364,13 +385,19 @@ export function categorize(input: CategorizeInput): CategoryGuess {
 
   // The ledger account goes FIRST: it is the most authoritative signal, and the
   // rules are ordered so a specific match beats a broad one.
-  const haystack = [input.ledgerAccount, input.description, input.counterpartyName, input.category]
+  const raw = [input.ledgerAccount, input.description, input.counterpartyName, input.category]
     .filter(Boolean)
     .join(' ');
 
+  // Both spellings are searched, and neither replaces the other. Splitting is
+  // what finds "CreditGUSTO"; keeping the original is what still finds
+  // "ClickUp", whose capital is part of the name rather than a missing space.
+  const split = splitRunTogetherWords(raw);
+  const haystacks = split === raw ? [raw] : [raw, split];
+
   for (const rule of RULES) {
     if (rule.direction && rule.direction !== input.direction) continue;
-    if (!rule.patterns.test(haystack)) continue;
+    if (!haystacks.some((h) => rule.patterns.test(h))) continue;
     return {
       category: rule.category,
       subcategory: rule.subcategory ?? null,

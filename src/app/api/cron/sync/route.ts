@@ -41,6 +41,10 @@ export async function GET(request: Request) {
   const dedup = await flagCrossSourceDuplicates(db, asOf);
   const transactionAlerts = await runTransactionAlerts(db, { asOf, limit: 100 });
   const thresholdAlerts = await runThresholdAlerts(db, { asOf });
+  // Price increases are NOT swept here — they run on their own daily
+  // endpoint. Rescanning three years of ledger on every tick to catch a
+  // monthly event would put this route over its 60-second ceiling and take
+  // the ordinary money-in and money-out alerts down with it.
 
   return Response.json({
     ok: true,

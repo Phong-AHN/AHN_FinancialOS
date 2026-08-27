@@ -32,16 +32,22 @@ export const dynamic = 'force-dynamic';
  *   3. missing categories - totals are right, attribution is not
  */
 export default async function ReconcilePage() {
-  const session = await requireSession();
+  // The session check and the data query start together. `requireSession()`
+  // costs a round trip to the Auth server in Tokyo, and running it first meant
+  // every page waited for it before asking for a single row. RLS is the real
+  // boundary - a request without a valid session gets nothing back from these
+  // queries anyway - and `redirect()` throws before anything renders, so a
+  // signed-out visitor still sees the login screen and never sees data.
   const supabase = createSupabaseServerClient();
-  const canEdit = session.user.role === 'owner';
   const asOf = today();
 
-  const [{ snapshot }, duplicates, uncategorized] = await Promise.all([
+  const [session, { snapshot }, duplicates, uncategorized] = await Promise.all([
+    requireSession(),
     loadDashboard(supabase, asOf),
     loadTransactions(supabase, { status: 'possible_duplicate', limit: 50 }),
     loadTransactions(supabase, { uncategorized: true, limit: 50 }),
   ]);
+  const canEdit = session.user.role === 'owner';
 
   const outOfBalance = snapshot.cash.byAccount.filter(
     (b) => b.varianceMinor !== null && b.varianceMinor !== 0,

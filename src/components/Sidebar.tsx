@@ -17,6 +17,7 @@ const NAV: NavItem[] = [
   { href: '/accounts', label: 'Accounts', hint: 'Balances by account and entity' },
   { href: '/reconcile', label: 'Reconcile', hint: 'Duplicates and missing categories' },
   { href: '/import', label: 'Import CSV', hint: 'VN bank, VEEM, payroll', ownerOnly: true },
+  { href: '/subscriptions', label: 'Recurring', hint: 'Subscriptions and price rises' },
   { href: '/alerts', label: 'Alerts', hint: 'Rules and delivery log' },
   { href: '/integrations', label: 'Integrations', hint: 'QuickBooks, Plaid, Stripe', ownerOnly: true },
   { href: '/audit', label: 'Audit log', hint: 'Who changed what', ownerOnly: true },

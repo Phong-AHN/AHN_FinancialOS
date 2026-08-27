@@ -10,6 +10,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AppUser } from '@/lib/types';
 
+/**
+ * Marks an audit entry written by a rule rather than by a person.
+ *
+ * The recategorise pass logs its own changes, which is right — a figure that
+ * moved should always say why. But those entries then look exactly like human
+ * corrections to anything that reads the log to decide "has a person ruled on
+ * this row?". Left undistinguished, the rule engine reads its own handwriting
+ * as somebody else's verdict and refuses to ever touch the row again.
+ *
+ * The writer and the reader share this one constant so they cannot drift.
+ */
+export const RULE_AUDIT_REASON = 'Re-ran categorisation rules';
+
+/** True when this audit entry was written by a rule, not by a person. */
+export function isAutomatedAudit(reason: string | null | undefined): boolean {
+  return Boolean(reason?.startsWith(RULE_AUDIT_REASON));
+}
+
 export interface AuditEntry {
   table_name: string;
   record_id: string;

@@ -26,6 +26,16 @@ interface ProviderMeta {
 }
 
 /**
+ * The sources whose row counts this page reports.
+ *
+ * Typed as the provider keys the cards actually look up, so adding a card
+ * without counting its rows - or counting a source no card displays - is a
+ * compile error rather than a silently empty figure.
+ */
+const COUNTED_SOURCES: ReadonlyArray<ProviderMeta['key']> = ['quickbooks', 'plaid', 'stripe'];
+
+
+/**
  * Integrations - MVP Plan Days 2 and 3.
  *
  * Three providers self-serve their way to production credentials, so all three
@@ -38,30 +48,43 @@ export default async function IntegrationsPage({
 }: {
   searchParams: Record<string, string | undefined>;
 }) {
-  await requireOwner();
+  // The owner check and the query start together. `requireOwner()` costs a
+  // round trip to Tokyo, and gating the query behind it added that to every
+  // load. A viewer who reaches here still gets redirected before anything
+  // renders, and RLS decides what the query returns either way - so the check
+  // still decides the outcome, it just no longer decides the timing.
   const supabase = createSupabaseServerClient();
-
-  const { data } = await supabase
-    .from('integrations')
-    .select('id,provider,label,status,external_id,last_synced_at,last_error,created_at')
-    .order('created_at');
-  const integrations = (data ?? []) as Array<
-    Pick<Integration, 'id' | 'provider' | 'label' | 'status' | 'external_id' | 'last_synced_at' | 'last_error' | 'created_at'>
-  >;
 
   // How many REAL rows each provider has produced. Demo-seed rows are keyed
   // `demo-%`, and counting them here would tell someone their integration is
   // working when it has not synced a thing.
-  const { data: sourceRows } = await supabase
-    .from('transactions')
-    .select('source_system')
-    .not('external_txn_id', 'like', 'demo-%')
-    .limit(20_000);
+  //
+  // Counted in Postgres, one `head` request per provider, all in flight at
+  // once. This used to pull up to 20,000 `source_system` values across the
+  // wire and tally them in JavaScript - invisible at 135 transactions, a
+  // whole table transfer on every page view once the ledger is real.
+  const [, integrationsRes, ...counts] = await Promise.all([
+    requireOwner(),
+    supabase
+      .from('integrations')
+      .select('id,provider,label,status,external_id,last_synced_at,last_error,created_at')
+      .order('created_at'),
+    ...COUNTED_SOURCES.map((source) =>
+      supabase
+        .from('transactions')
+        .select('id', { count: 'exact', head: true })
+        .eq('source_system', source)
+        .not('external_txn_id', 'like', 'demo-%'),
+    ),
+  ]);
 
-  const rowCounts = new Map<string, number>();
-  for (const r of (sourceRows ?? []) as Array<{ source_system: string }>) {
-    rowCounts.set(r.source_system, (rowCounts.get(r.source_system) ?? 0) + 1);
-  }
+  const integrations = (integrationsRes.data ?? []) as Array<
+    Pick<Integration, 'id' | 'provider' | 'label' | 'status' | 'external_id' | 'last_synced_at' | 'last_error' | 'created_at'>
+  >;
+
+  const rowCounts = new Map<string, number>(
+    COUNTED_SOURCES.map((source, i) => [source, counts[i]?.count ?? 0]),
+  );
 
   const qboProblems = qboConfigProblems();
   const qboEnv = qboEnvironment();

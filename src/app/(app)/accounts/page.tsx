@@ -37,11 +37,17 @@ const COUNTRY_LABELS: Record<string, string> = {
  * prove that is to show the difference rather than to display only one of them.
  */
 export default async function AccountsPage() {
-  await requireSession();
+  // The session check and the data query start together. `requireSession()`
+  // costs a round trip to the Auth server in Tokyo, and running it first meant
+  // every page waited for it before asking for a single row. RLS is the real
+  // boundary - a request without a valid session gets nothing back from these
+  // queries anyway - and `redirect()` throws before anything renders, so a
+  // signed-out visitor still sees the login screen and never sees data.
   const supabase = createSupabaseServerClient();
   const asOf = today();
 
-  const [{ snapshot, accounts, rates }, companiesRes] = await Promise.all([
+  const [, { snapshot, accounts, rates }, companiesRes] = await Promise.all([
+    requireSession(),
     loadDashboard(supabase, asOf),
     supabase.from('companies').select('*'),
   ]);

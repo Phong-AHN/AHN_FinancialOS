@@ -54,6 +54,7 @@ const state = {
     sync: { runs: 0, failures: 0, lastRun: null, lastStatus: null, lastError: null },
     'digest:daily': { runs: 0, failures: 0, lastRun: null, lastStatus: null, lastError: null },
     'digest:weekly': { runs: 0, failures: 0, lastRun: null, lastStatus: null, lastError: null },
+    'price-increases': { runs: 0, failures: 0, lastRun: null, lastStatus: null, lastError: null },
   },
 };
 
@@ -92,7 +93,13 @@ function log(...parts) {
  * everything else, and the failure that killed it is the one nobody sees.
  */
 async function callEndpoint(job, path) {
-  const entry = state.jobs[job];
+  const entry = (state.jobs[job] ??= {
+    runs: 0,
+    failures: 0,
+    lastRun: null,
+    lastStatus: null,
+    lastError: null,
+  });
   entry.runs++;
   entry.lastRun = new Date().toISOString();
 
@@ -183,6 +190,29 @@ setInterval(() => {
     lastWeeklyKey = dayKey;
     void callEndpoint('digest:weekly', '/api/cron/digest?period=weekly');
   }
+}, 60_000);
+
+/**
+ * The price-increase sweep, once a day, an hour after the digest.
+ *
+ * Kept off the sync tick deliberately: it re-reads three years of outflows to
+ * rebuild the recurring-charge picture, and a price changes monthly at most.
+ * Running it every few minutes would spend most of the sync budget rediscovering
+ * the same answer. It is deduped by vendor and change date, so firing once a day
+ * still announces every rise exactly once.
+ *
+ * An hour after the digest so the two never contend for the same minute.
+ */
+let lastPriceKey = null;
+
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() !== (DIGEST_HOUR + 1) % 24 || now.getMinutes() !== 0) return;
+
+  const dayKey = now.toISOString().slice(0, 10);
+  if (lastPriceKey === dayKey) return;
+  lastPriceKey = dayKey;
+  void callEndpoint('price-increases', '/api/cron/price-increases');
 }, 60_000);
 
 // ─── Health ─────────────────────────────────────────────────────────────────

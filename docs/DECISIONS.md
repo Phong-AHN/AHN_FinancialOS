@@ -709,6 +709,62 @@ a wrong one gives `sync FAILED  401 {"error":"Unauthorized."}` and `/health` 503
 
 ---
 
+## 39. Railway's dependency scan blocked the deploy, and it was right to
+
+Railway refused to build:
+
+```
+next@14.2.15  HIGH
+  CVE-2025-55184, CVE-2025-67779
+  Upgrade to 14.2.35
+```
+
+Upgrading was worth doing on its own terms — a financial dashboard should not run
+on a Next.js release with two known HIGH advisories — so the fix was the fix, not
+a workaround.
+
+Cleaning up what the audit then exposed took the tree from **9 vulnerabilities
+(1 critical, 5 high, 3 moderate) to 1 high**, and removed 283 packages:
+
+| | |
+|---|---|
+| `next` 14.2.15 → 14.2.35 | the two CVEs that blocked the build |
+| `vitest` 2.1.9 → 4.1.11 | cleared the **critical** plus three moderates (vite, esbuild, vite-node). All 164 tests pass unchanged. |
+| `postcss` override | next@14.2.x pins postcss to exactly 8.4.31, which has two HIGH advisories. npm's suggested remedy was `next@16` — a major upgrade to dodge a transitive patch. postcss 8.x is semver-stable, so the nested copy is pulled up to the patched release instead. The override must match the direct devDependency exactly or npm refuses it. |
+| `eslint`, `eslint-config-next` removed | **Never configured.** No `.eslintrc`, no `eslintConfig`, and the `lint` script pointed at a linter that would have prompted for setup rather than linting. Three HIGH findings came in through `@next/eslint-plugin-next → glob`, for a tool that had produced no value. Removing dead weight beat a major upgrade of something unused. |
+
+### The one that remains
+
+`next` still carries a HIGH: *DoS via Image Optimizer, self-hosted applications*.
+There is no fix inside 14.2.x — only Next 15+, whose `searchParams`/`params`
+became Promises, which is a real migration on a working app.
+
+Rather than leave it implicit that the advisory does not apply, the optimizer is
+now **switched off** in `next.config.mjs` (`images: { unoptimized: true }`). The
+app renders no images — every chart is inline SVG — so the endpoint was dead code
+carrying an advisory. Disabling it removes the surface rather than relying on
+nobody calling it.
+
+`npm audit` still reports it, because audit reads versions and not configuration.
+
+---
+
+## 40. The worker was being blocked by a lockfile it does not use
+
+The scheduler in `worker/` has **zero dependencies** and imports one Node
+built-in. Railway nonetheless uploads the whole repository before building from
+the Root Directory, so the Next.js `package-lock.json` travelled with it — and
+the scanner reads that lockfile. An advisory in a package the worker never loads
+was blocking the worker's deploy.
+
+`.railwayignore` now excludes everything but `worker/`. The upload went from
+1.1 MB to three files, and the scanner sees only what the service actually runs.
+
+This is scoping, not suppression: the app's own dependencies are still audited
+when the app is deployed, and the remaining advisory is documented above.
+
+---
+
 ## What was NOT changed
 
 The plan's scope boundary held. No project P&L, no events P&L, no subscription

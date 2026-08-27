@@ -104,6 +104,12 @@ New project → **Deploy from GitHub repo** → this repository.
 dependencies** and its own `railway.json`. `npm install` there is instant, and
 the worker cannot accidentally reach into application code.
 
+[`.railwayignore`](../.railwayignore) keeps the upload to `worker/` alone.
+Railway uploads the whole repository before building from the Root Directory, so
+without it the app's `package-lock.json` travels along — and Railway's dependency
+scanner reads that lockfile and blocks the build over advisories in packages the
+worker never loads.
+
 ### Variables
 
 Add these under **Variables**:

@@ -1,0 +1,32 @@
+# Railway uploads the whole repository and then builds from the Root Directory.
+# The scheduler in worker/ has ZERO dependencies and does not import a line of
+# the Next.js app, yet the app's package-lock.json was travelling with it — and
+# the dependency scanner reads that lockfile, so an advisory in a package the
+# worker never loads was blocking the worker's deploy.
+#
+# Excluding everything but worker/ keeps the upload to a few kilobytes and gives
+# the scanner only what the service actually runs.
+#
+# This file affects the Railway upload only. It has no effect on Vercel, which
+# deploys the app from git.
+
+/src
+/tests
+/scripts
+/supabase
+/docs
+/samples
+/public
+/.next
+/node_modules
+package.json
+package-lock.json
+next.config.mjs
+tsconfig.json
+tailwind.config.ts
+postcss.config.mjs
+vitest.config.mts
+next-env.d.ts
+*.md
+requirement.txt
+tsconfig.tsbuildinfo

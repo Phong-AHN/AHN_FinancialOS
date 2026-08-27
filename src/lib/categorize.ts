@@ -86,7 +86,7 @@ const RULES: Rule[] = [
   },
   {
     id: 'rev-invoice',
-    patterns: /\b(invoice|inv[- ]?\d+|client payment|deposit from|retainer received)\b/i,
+    patterns: /\b(invoice|inv[- ]?\d+|client payment|client retainer|deposit from|retainer received|retainer)\b/i,
     category: 'revenue',
     subcategory: 'client_services',
     direction: 'inflow',
@@ -174,7 +174,7 @@ const RULES: Rule[] = [
   // ── Professional / agency services (spec 7) ──────────────────────────────
   {
     id: 'svc-legal',
-    patterns: /\b(legal|attorney|law (firm|office)|counsel|retainer)\b/i,
+    patterns: /\b(legal|attorney|law (firm|office)|counsel|legal retainer|retainer fee)\b/i,
     category: 'professional_services',
     subcategory: 'legal',
     counterpartyType: 'vendor',

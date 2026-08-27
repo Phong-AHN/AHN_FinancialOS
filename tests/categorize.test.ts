@@ -95,3 +95,52 @@ describe('diffForAudit', () => {
     expect(entries).toHaveLength(1);
   });
 });
+
+describe('retainers: who is paying whom', () => {
+  it('treats a client retainer ARRIVING as revenue', () => {
+    // Found on live Stripe data: "Client retainer — Lotus Beauty Labs" was
+    // filed under professional_services/legal, because the legal rule matched
+    // the bare word "retainer" and was not scoped to outflows. It is a client
+    // paying AHN.
+    const guess = categorize({
+      description: 'Client retainer — Lotus Beauty Labs, August',
+      direction: 'inflow',
+    });
+    expect(guess.category).toBe('revenue');
+    expect(guess.counterpartyType).toBe('customer');
+  });
+
+  it('still treats a legal retainer GOING OUT as legal spend', () => {
+    const guess = categorize({
+      description: 'Legal retainer — contracts review',
+      direction: 'outflow',
+    });
+    expect(guess.category).toBe('professional_services');
+    expect(guess.subcategory).toBe('legal');
+  });
+
+  it('keeps the rest of the legal rule working', () => {
+    for (const d of ['Legal fees', 'Attorney fees', 'Law firm invoice', 'Outside counsel']) {
+      expect(categorize({ description: d, direction: 'outflow' }).category, d).toBe(
+        'professional_services',
+      );
+    }
+  });
+
+  it('leaves a bare firm name uncategorised rather than guessing', () => {
+    // "Whitfield & Cho LLP" names a firm and says nothing about what the money
+    // was for. Guessing from a suffix would be wrong as often as right; the row
+    // belongs in the review queue, or gets its category from the QuickBooks
+    // ledger account, which is authoritative.
+    expect(categorize({ description: 'Whitfield & Cho LLP', direction: 'outflow' }).category).toBe(
+      'uncategorized',
+    );
+    expect(
+      categorize({
+        description: 'Whitfield & Cho LLP',
+        ledgerAccount: 'Legal & Professional Fees:Lawyer',
+        direction: 'outflow',
+      }).category,
+    ).toBe('professional_services');
+  });
+});

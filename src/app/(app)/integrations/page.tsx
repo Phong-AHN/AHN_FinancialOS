@@ -277,10 +277,16 @@ export default async function IntegrationsPage({
       <Card className="mt-4">
         <SectionHeader title="Automatic syncing" />
         <p className="muted text-[13px] leading-relaxed">
-          <code>vercel.json</code> schedules <code>/api/cron/sync</code> every 10 minutes, plus a
-          daily digest at 09:00 and a weekly one on Monday. Each run pulls new transactions,
-          re-checks for cross-source duplicates, fires alerts for anything unseen, and evaluates the
-          runway and balance thresholds. The route is guarded by <code>CRON_SECRET</code>.
+          A scheduler calls <code>/api/cron/sync</code> every 10 minutes, plus a daily digest and a
+          weekly one. Each run pulls new transactions, re-checks for cross-source duplicates, fires
+          alerts for anything unseen, and evaluates the runway and balance thresholds. The route is
+          guarded by <code>CRON_SECRET</code>, so nothing runs without it.
+        </p>
+        <p className="muted mt-2 text-[13px] leading-relaxed">
+          The schedule runs as a separate worker rather than on Vercel, whose Hobby plan allows
+          only one cron run per day. Its <code>/health</code> endpoint reports the last outcome of
+          every job and answers 503 once any has failed — worth checking if transactions stop
+          appearing.
         </p>
       </Card>
     </>

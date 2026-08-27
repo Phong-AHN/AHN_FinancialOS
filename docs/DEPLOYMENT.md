@@ -15,13 +15,37 @@ Vercel's Hobby plan allows **one cron run per day**:
 > (`*/10 * * * *`) would run more than once per day.
 
 The sync needs to run every ten minutes, or "every dollar, within a few minutes"
-is not true. `vercel.json` therefore carries **no crons**, and
-[`worker/index.mjs`](../worker/index.mjs) owns the schedule instead.
+is not true. The schedule therefore lives in
+[`worker/index.mjs`](../worker/index.mjs), deployed separately.
 
 Nothing else changed. The `/api/cron/*` endpoints are identical and still
-guarded by `CRON_SECRET`; the worker is only a caller. Moving back to Vercel Cron
-on a Pro plan means restoring the `crons` array — the exact JSON is kept in
-`vercel.json` as a comment — and stopping the Railway service.
+guarded by `CRON_SECRET`; the worker is only a caller.
+
+**There is no `vercel.json`.** It held nothing but the crons, and Vercel's schema
+rejects unknown keys (`should NOT have additional property "comment"`) so the
+explanation could not live there either. Everything else it might have carried is
+already elsewhere: `maxDuration` is declared per route with
+`export const maxDuration = 60`, and the security headers are in
+`next.config.mjs`.
+
+### Moving back to Vercel Cron on a Pro plan
+
+Create `vercel.json` with exactly this, and stop the Railway service:
+
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/sync", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/digest?period=daily", "schedule": "0 2 * * *" },
+    { "path": "/api/cron/digest?period=weekly", "schedule": "0 2 * * 1" }
+  ]
+}
+```
+
+Vercel cron schedules are **UTC and not configurable**, so `0 2 * * *` is 09:00
+in Vietnam. That is the one thing the Railway worker does better: it takes a `TZ`
+and fires on local time.
 
 The worker is a plain interval loop rather than Railway's own cron feature, so it
 runs the same way on Railway, Render, Fly or a VPS. No provider's cron syntax,

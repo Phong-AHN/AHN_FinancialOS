@@ -674,12 +674,17 @@ each file as one statement.
 
 Vercel's Hobby plan allows one cron run per day. The sync needs ten-minute
 intervals for "every dollar, within a few minutes" to mean anything, so
-`vercel.json` now carries no crons and `worker/index.mjs` owns the schedule.
+the schedule moved to `worker/index.mjs`, deployed separately.
 
 **Nothing about the app changed.** The `/api/cron/*` endpoints are identical,
-still guarded by `CRON_SECRET`; the worker is only a caller. The exact `crons`
-array is preserved as a comment in `vercel.json`, so moving back on a Pro plan is
-restoring three lines and stopping one service.
+still guarded by `CRON_SECRET`; the worker is only a caller.
+
+`vercel.json` was then deleted outright. With the crons gone it held nothing, and
+an attempt to leave the reasoning behind as a `comment` key failed schema
+validation — Vercel rejects unknown properties, and JSON has no comments. The
+restore instructions live in [DEPLOYMENT.md](DEPLOYMENT.md), which can say it in
+prose. Nothing was lost: `maxDuration` is declared per route via
+`export const maxDuration`, and the headers are in `next.config.mjs`.
 
 **A loop, not the host's cron.** Railway has its own cron feature, and using it
 would have tied the schedule to one provider's syntax, quotas and minimum

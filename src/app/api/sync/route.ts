@@ -1,4 +1,5 @@
 import { requireApiSession } from '@/lib/auth';
+import { callerKey, crossOriginRefusal, rateLimitRefusal } from '@/lib/security';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { syncAllIntegrations } from '@/lib/sync';
 import { flagCrossSourceDuplicates } from '@/lib/ingest';
@@ -20,7 +21,18 @@ export const maxDuration = 60;
  * on behalf of the signed-in user - but only after confirming that the caller
  * really is a signed-in owner.
  */
-export async function POST() {
+export async function POST(request: Request) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
+  // Each run calls QuickBooks, Plaid, Stripe and VietinBank. Providers rate-limit us
+  // in turn, and being throttled by a bank is not a state worth reaching by accident.
+  const tooMany = rateLimitRefusal(callerKey(request, 'sync'), {
+    limit: 4,
+    windowMs: 60000,
+  });
+  if (tooMany) return tooMany;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

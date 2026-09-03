@@ -2,7 +2,19 @@
 /**
  * Create a sign-in account.
  *
- *   node scripts/create-user.mjs <email> <password> [owner|viewer]
+ *   node scripts/create-user.mjs <email> <password> [role]
+ *
+ * Roles (spec section 23). What each may do is enforced by Row Level
+ * Security - see supabase/migrations/0023_capabilities.sql, which is the
+ * authority. This script only records which one somebody has.
+ *
+ *   owner            everything
+ *   cfo              everything; distinct from the owner organisationally
+ *   accountant       all money and payroll, reclassifies, no bank keys
+ *   department_lead  scoped to the business unit they lead
+ *   project_manager  scoped to the projects they own
+ *   employee         their own record and hours, nothing else
+ *   viewer           read-only across the company, minus compensation
  *
  * Does both halves of the job, which is the part that trips people up:
  *   1. the Supabase Auth user  (auth.users - what you sign in with)
@@ -32,11 +44,25 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const [, , emailArg, passwordArg, roleArg = 'owner'] = process.argv;
 
 if (!emailArg || !passwordArg) {
-  console.error('\n  Usage: node scripts/create-user.mjs <email> <password> [owner|viewer]\n');
+  console.error(
+    '\n  Usage: node scripts/create-user.mjs <email> <password> [role]\n' +
+      '  Roles: owner, cfo, accountant, department_lead, project_manager,' +
+      ' employee, viewer\n',
+  );
   process.exit(1);
 }
-if (roleArg !== 'owner' && roleArg !== 'viewer') {
-  console.error(`\n  Role must be "owner" or "viewer", got "${roleArg}".\n`);
+const ROLES = [
+  'owner',
+  'cfo',
+  'accountant',
+  'department_lead',
+  'project_manager',
+  'employee',
+  'viewer',
+];
+
+if (!ROLES.includes(roleArg)) {
+  console.error(`\n  Role must be one of: ${ROLES.join(', ')}\n  Got "${roleArg}".\n`);
   process.exit(1);
 }
 if (passwordArg.length < 8) {

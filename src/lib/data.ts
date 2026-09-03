@@ -9,15 +9,75 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   AlertRule,
+  BusinessUnit,
+  Project,
+  ProjectWithContext,
   AuditLog,
   FinancialAccount,
   NotificationRow,
   Transaction,
   TransactionWithContext,
 } from '@/lib/types';
-import { computeSnapshot, type FinancialSnapshot, type UsdRateMap } from '@/lib/calc/engine';
+import {
+  computeBurnRate,
+  computeSnapshot,
+  countsTowardCash,
+  type FinancialSnapshot,
+  type UsdRateMap,
+} from '@/lib/calc/engine';
+import {
+  buildScenarios,
+  computeBaseline,
+  type Baseline,
+  type Scenario,
+} from '@/lib/calc/simulator';
 import { loadUsdRates } from '@/lib/fx';
 import { addDays, today, type ISODate } from '@/lib/dates';
+import {
+  comparePeriods,
+  detectAnomalies,
+  explainCashChange,
+  type Anomaly,
+  type CashChange,
+  type PeriodComparison,
+} from '@/lib/calc/explain';
+import {
+  agingReport,
+  findLikelySettled,
+  projectCash,
+  summarise,
+  type AgingLine,
+  type CashProjection,
+  type LedgerSummary,
+  type LikelySettlement,
+  type Obligation,
+} from '@/lib/calc/obligations';
+import {
+  budgetTotals,
+  computeBudgetStatus,
+  type BudgetRow,
+  type BudgetStatus,
+  type BudgetTotals,
+  type ScopeContext,
+} from '@/lib/calc/budgets';
+import {
+  computeNetProfit,
+  computeProjectLabour,
+  detectLabourDoubleCount,
+  type DoubleCountWarning,
+  type NetProfit,
+  type Person,
+  type ProjectLabour,
+  type TimeEntry,
+} from '@/lib/calc/labour';
+import {
+  computeProjectPnl,
+  groupByProject,
+  portfolioTotals,
+  type PortfolioTotals,
+  type ProjectPnl,
+  type ProjectSummaryRow,
+} from '@/lib/calc/projects';
 import {
   detectRecurringCharges,
   summariseSubscriptions,
@@ -82,6 +142,10 @@ export interface TransactionFilters {
   uncategorized?: boolean;
   /** Which connector the row came from. */
   source?: string;
+  /** Rows attributed to one project or event. */
+  projectId?: string;
+  /** Rows attributed to nothing — the queue for spec §12 attribution. */
+  unassigned?: boolean;
   /**
    * Hide rows written by `npm run db:seed`.
    *
@@ -110,6 +174,7 @@ function applyFilters<T>(query: T, filters: TransactionFilters): T {
     or: (v: string) => typeof q;
     not: (c: string, op: string, v: string) => typeof q;
     like: (c: string, v: string) => typeof q;
+    is: (c: string, v: unknown) => typeof q;
   };
 
   if (filters.direction) q = q.eq('direction', filters.direction);
@@ -127,6 +192,8 @@ function applyFilters<T>(query: T, filters: TransactionFilters): T {
     q = q.or('category.is.null,category.eq.uncategorized');
   }
   if (filters.source) q = q.eq('source_system', filters.source);
+  if (filters.projectId) q = q.eq('project_id', filters.projectId);
+  if (filters.unassigned) q = q.is('project_id', null);
   if (filters.excludeDemo) q = q.not('external_txn_id', 'like', 'demo-%');
   if (filters.operatingOnly) {
     // Mirrors countsTowardPnl() in the calc engine: what the dashboard totals
@@ -305,5 +372,438 @@ export async function loadRecurringCharges(
     summary: summariseSubscriptions(charges, asOf),
     scannedFrom,
     scanned: transactions.length,
+  };
+}
+
+// ─── Projects and events (spec sections 12, 14, 15, 16) ─────────────────────
+
+const PROJECT_SELECT =
+  '*, business_unit:business_units(id,name), client:clients(id,name)';
+
+export interface ProjectPortfolio {
+  rows: Array<ProjectSummaryRow<ProjectWithContext>>;
+  totals: PortfolioTotals;
+  unassigned: Transaction[];
+  units: BusinessUnit[];
+  rates: UsdRateMap;
+}
+
+/**
+ * Every project with its P&L, in three queries rather than one per project.
+ *
+ * The transaction pull is deliberately unfiltered by project: fetching each
+ * project's rows separately would be one Tokyo round trip per project, and a
+ * page that gets slower with every project AHN runs is a page nobody opens.
+ */
+export async function loadProjectPortfolio(
+  db: SupabaseClient,
+  asOf: ISODate = today(),
+): Promise<ProjectPortfolio> {
+  const [projectsRes, txnRes, unitsRes, rates] = await Promise.all([
+    db.from('projects').select(PROJECT_SELECT).order('created_at', { ascending: false }),
+    db
+      .from('transactions')
+      .select(TXN_SELECT)
+      .gte('txn_date', addDays(asOf, -PROJECT_WINDOW_DAYS))
+      .lte('txn_date', asOf)
+      .limit(20_000),
+    db.from('business_units').select('*').order('sort_order'),
+    loadUsdRates(db, asOf),
+  ]);
+
+  const projects = (projectsRes.data ?? []) as ProjectWithContext[];
+  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+
+  const { rows, unassigned } = groupByProject(projects, transactions as Transaction[], rates);
+
+  return {
+    rows,
+    totals: portfolioTotals(rows, unassigned),
+    unassigned,
+    units: (unitsRes.data ?? []) as BusinessUnit[],
+    rates,
+  };
+}
+
+/** Two years: long enough for an annual event to show its previous edition. */
+const PROJECT_WINDOW_DAYS = 730;
+
+export interface LoadedProject {
+  project: ProjectWithContext;
+  pnl: ProjectPnl;
+  transactions: TransactionWithContext[];
+  /**
+   * Labour, or null when the caller cannot see it.
+   *
+   * `people` and `time_entries` are owner-only (migration 0013) because a rate
+   * is compensation. A viewer therefore reads zero hours — and zero labour
+   * subtracted from gross profit would render as a NET profit that is really
+   * the gross one. Null forces the page to say "not visible to you" instead of
+   * showing a number that is wrong by exactly the payroll it is hiding.
+   */
+  labour: ProjectLabour | null;
+  net: NetProfit | null;
+  doubleCount: DoubleCountWarning | null;
+}
+
+export async function loadProject(
+  db: SupabaseClient,
+  id: string,
+  opts: {
+    asOf?: ISODate;
+    /**
+     * Whether this reader may see what people cost.
+     *
+     * Defaults to FALSE, which is the safe direction: a caller that forgets to
+     * pass it gets "not visible to you" rather than a net profit computed from
+     * a labour cost of zero.
+     */
+    canSeeCompensation?: boolean;
+  } = {},
+): Promise<LoadedProject | null> {
+  const asOf = opts.asOf ?? today();
+  const [projectRes, txnRes, timeRes, peopleRes, rates] = await Promise.all([
+    db.from('projects').select(PROJECT_SELECT).eq('id', id).maybeSingle(),
+    db
+      .from('transactions')
+      .select(TXN_SELECT)
+      .eq('project_id', id)
+      .order('txn_date', { ascending: false })
+      .limit(5_000),
+    db.from('time_entries').select('*').eq('project_id', id).limit(20_000),
+    db.from('people').select('*'),
+    loadUsdRates(db, asOf),
+  ]);
+
+  const project = projectRes.data as ProjectWithContext | null;
+  if (!project) return null;
+
+  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+  const pnl = computeProjectPnl(transactions as Transaction[], project, rates);
+
+  /*
+   * WHY THIS IS THE CALLER'S CAPABILITY AND NOT A QUERY ERROR.
+   *
+   * This used to read `!timeRes.error && !peopleRes.error`, on the stated
+   * belief that "RLS answers a viewer with an error, not an empty list". It
+   * does not. A blocked select comes back HTTP 200 with `[]` and no error at
+   * all — verified against a real viewer token.
+   *
+   * So the guard never fired. A viewer opening a project got labour computed
+   * from zero people, a labour cost of 0, and a NET profit identical to the
+   * gross one — presented as net. That is the confident zero this codebase
+   * refuses everywhere else, and it was hiding the single largest cost a
+   * project has.
+   *
+   * An empty list genuinely cannot distinguish the two cases, because "nobody
+   * has logged time" and "you may not see who did" look identical from here.
+   * The capability can, and it is the same rule `can_see_compensation()`
+   * enforces in Postgres — with `tests/rbac.integration.test.ts` asserting the
+   * two agree.
+   */
+  const canSeeLabour = opts.canSeeCompensation === true;
+
+  if (!canSeeLabour) {
+    return { project, pnl, transactions, labour: null, net: null, doubleCount: null };
+  }
+
+  const labour = computeProjectLabour(
+    (timeRes.data ?? []) as TimeEntry[],
+    (peopleRes.data ?? []) as Person[],
+    project,
+  );
+
+  return {
+    project,
+    pnl,
+    transactions,
+    labour,
+    net: computeNetProfit(pnl.grossProfitUsdMinor, pnl.cashReceivedUsdMinor, labour.actualCostUsdMinor),
+    doubleCount: detectLabourDoubleCount(
+      transactions as Transaction[],
+      labour.actualCostUsdMinor,
+      rates,
+    ),
+  };
+}
+
+export async function loadProjectOptions(
+  db: SupabaseClient,
+): Promise<Array<Pick<Project, 'id' | 'name' | 'kind' | 'status'>>> {
+  const { data } = await db
+    .from('projects')
+    .select('id,name,kind,status')
+    .in('status', ['planned', 'active'])
+    .order('name');
+  return (data ?? []) as Array<Pick<Project, 'id' | 'name' | 'kind' | 'status'>>;
+}
+
+// ─── Growth and margin simulator (spec section 11) ──────────────────────────
+
+/**
+ * Twelve months of complete months, not the three the burn rate uses.
+ *
+ * Burn wants a recent average, so three months is right for it. A growth plan
+ * wants a distribution — the weakest month, the median, the strongest — and
+ * three points cannot describe one. Twelve also spans a full seasonal cycle,
+ * which matters for a business with an events line.
+ */
+const SIMULATOR_MONTHS = 12;
+
+export async function loadSimulatorBaseline(
+  db: SupabaseClient,
+  asOf: ISODate = today(),
+): Promise<{ baseline: Baseline; scenarios: Scenario[]; asOf: ISODate }> {
+  const [txnRes, rates] = await Promise.all([
+    db
+      .from('transactions')
+      .select('*')
+      .gte('txn_date', addDays(asOf, -(SIMULATOR_MONTHS + 2) * 31))
+      .lte('txn_date', asOf)
+      .limit(20_000),
+    loadUsdRates(db, asOf),
+  ]);
+
+  const burn = computeBurnRate(
+    (txnRes.data ?? []) as Transaction[],
+    asOf,
+    SIMULATOR_MONTHS,
+    rates,
+  );
+
+  const baseline = computeBaseline(burn.perMonth);
+  return { baseline, scenarios: buildScenarios(baseline), asOf };
+}
+
+// ─── Budgets (spec section 19) ──────────────────────────────────────────────
+
+export interface BudgetBoard {
+  statuses: BudgetStatus[];
+  totals: BudgetTotals;
+  asOf: ISODate;
+  /**
+   * Projects carrying a lifetime budget on the project row AS WELL AS a
+   * period budget here.
+   *
+   * Both are legitimate — one is what a piece of work may cost in total, the
+   * other what it may cost this month — but a reader seeing two different
+   * budget figures for the same project needs to be told why, or they will
+   * assume one of them is a bug.
+   */
+  projectsWithTwoBudgets: Array<{ id: string; name: string }>;
+}
+
+export async function loadBudgetBoard(
+  db: SupabaseClient,
+  asOf: ISODate = today(),
+): Promise<BudgetBoard> {
+  const [budgetsRes, txnRes, projectsRes, accountsRes, rates] = await Promise.all([
+    db.from('budgets').select('*').eq('is_active', true).order('starts_on', { ascending: false }),
+    db
+      .from('transactions')
+      .select('*')
+      // A year covers every period type a budget can use, with room for a
+      // quarter or year that started before the window would otherwise reach.
+      .gte('txn_date', addDays(asOf, -450))
+      .lte('txn_date', asOf)
+      .limit(20_000),
+    db.from('projects').select('id,name,business_unit_id,client_id,budget_expense_minor'),
+    db.from('financial_accounts').select('id,company_id'),
+    loadUsdRates(db, asOf),
+  ]);
+
+  const budgets = (budgetsRes.data ?? []) as BudgetRow[];
+  const transactions = (txnRes.data ?? []) as Array<Transaction & { project_id?: string | null }>;
+  const projects = (projectsRes.data ?? []) as Array<{
+    id: string;
+    name: string;
+    business_unit_id: string | null;
+    client_id: string | null;
+    budget_expense_minor: number | null;
+  }>;
+
+  const context: ScopeContext = {
+    projectMeta: new Map(
+      projects.map((p) => [p.id, { businessUnitId: p.business_unit_id, clientId: p.client_id }]),
+    ),
+    companyOfAccount: new Map(
+      ((accountsRes.data ?? []) as Array<{ id: string; company_id: string | null }>).map((a) => [
+        a.id,
+        a.company_id,
+      ]),
+    ),
+  };
+
+  const statuses = budgets.map((b) =>
+    computeBudgetStatus(b, transactions, asOf, context, rates),
+  );
+
+  const budgetedProjectIds = new Set(
+    budgets.filter((b) => b.scope === 'project' && b.scope_id).map((b) => b.scope_id!),
+  );
+
+  return {
+    statuses,
+    totals: budgetTotals(statuses),
+    asOf,
+    projectsWithTwoBudgets: projects
+      .filter((p) => p.budget_expense_minor !== null && budgetedProjectIds.has(p.id))
+      .map((p) => ({ id: p.id, name: p.name })),
+  };
+}
+
+/** Scope targets a person can pick when creating a budget. */
+export async function loadBudgetTargets(db: SupabaseClient): Promise<{
+  companies: Array<{ id: string; name: string }>;
+  businessUnits: Array<{ id: string; name: string }>;
+  clients: Array<{ id: string; name: string }>;
+  projects: Array<{ id: string; name: string }>;
+  categories: string[];
+}> {
+  const [companies, units, clients, projects, categories] = await Promise.all([
+    db.from('companies').select('id,name').order('name'),
+    db.from('business_units').select('id,name').eq('is_active', true).order('sort_order'),
+    db.from('clients').select('id,name').order('name'),
+    db.from('projects').select('id,name').in('status', ['planned', 'active']).order('name'),
+    loadCategories(db),
+  ]);
+
+  return {
+    companies: (companies.data ?? []) as Array<{ id: string; name: string }>,
+    businessUnits: (units.data ?? []) as Array<{ id: string; name: string }>,
+    clients: (clients.data ?? []) as Array<{ id: string; name: string }>,
+    projects: (projects.data ?? []) as Array<{ id: string; name: string }>,
+    categories: categories.filter((c) => c !== 'revenue' && c !== 'transfer'),
+  };
+}
+
+// ─── Receivables and payables (spec sections 17, 18) ────────────────────────
+
+export interface ObligationBoard {
+  receivables: Obligation[];
+  payables: Obligation[];
+  receivableSummary: LedgerSummary;
+  payableSummary: LedgerSummary;
+  receivableAging: AgingLine[];
+  payableAging: AgingLine[];
+  projection: CashProjection;
+  /**
+   * Open obligations a real payment appears to have already settled.
+   *
+   * Until somebody marks them settled, projected cash subtracts them a second
+   * time — telling a company that has already paid its rent that it still has
+   * to. Surfaced as suggestions, never applied automatically.
+   */
+  likelySettled: LikelySettlement[];
+  asOf: ISODate;
+}
+
+export async function loadObligationBoard(
+  db: SupabaseClient,
+  asOf: ISODate = today(),
+  horizonDays = 30,
+): Promise<ObligationBoard> {
+  const [obligationsRes, dashboard] = await Promise.all([
+    db.from('obligations').select('*').neq('status', 'void').order('due_on'),
+    loadDashboard(db, asOf),
+  ]);
+
+  const obligations = (obligationsRes.data ?? []) as Obligation[];
+  const receivables = obligations.filter((o) => o.direction === 'inflow');
+  const payables = obligations.filter((o) => o.direction === 'outflow');
+
+  const { rates, snapshot, transactions } = dashboard;
+
+  return {
+    receivables,
+    payables,
+    receivableSummary: summarise(receivables, asOf, rates),
+    payableSummary: summarise(payables, asOf, rates),
+    receivableAging: agingReport(receivables, asOf, rates),
+    payableAging: agingReport(payables, asOf, rates),
+    projection: projectCash(
+      snapshot.cash.totalUsdMinor,
+      obligations,
+      asOf,
+      horizonDays,
+      rates,
+    ),
+    likelySettled: findLikelySettled(obligations, transactions as Transaction[], { rates }),
+    asOf,
+  };
+}
+
+// ─── Explaining what changed (spec section 20) ──────────────────────────────
+
+export interface ExplainBoard {
+  cashChange: CashChange;
+  revenue: PeriodComparison;
+  spending: PeriodComparison;
+  anomalies: Anomaly[];
+  windowDays: number;
+  asOf: ISODate;
+}
+
+/**
+ * The deterministic analysis §20 says an AI layer should interpret.
+ *
+ * The opening balance is derived by walking today's cash BACKWARDS through the
+ * window rather than being read from anywhere: no account carries a dated
+ * historical balance, and inventing one would make the decomposition reconcile
+ * against a number nobody could check.
+ */
+export async function loadExplainBoard(
+  db: SupabaseClient,
+  asOf: ISODate = today(),
+  windowDays = 30,
+): Promise<ExplainBoard> {
+  const from = addDays(asOf, -windowDays);
+  const priorFrom = addDays(from, -windowDays);
+
+  const [accountsRes, txnRes, rates] = await Promise.all([
+    db.from('financial_accounts').select('*'),
+    db
+      .from('transactions')
+      .select(TXN_SELECT)
+      .gte('txn_date', addDays(asOf, -400))
+      .lte('txn_date', asOf)
+      .limit(20_000),
+    loadUsdRates(db, asOf),
+  ]);
+
+  const accounts = (accountsRes.data ?? []) as FinancialAccount[];
+  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+  const snapshot = computeSnapshot(accounts, transactions as Transaction[], asOf, rates);
+
+  const movedInWindow = (transactions as Transaction[])
+    .filter((t) => t.txn_date >= from && t.txn_date <= asOf)
+    .reduce((sum, t) => {
+      if (t.is_internal_transfer || !countsTowardCash(t)) return sum;
+      const usd = t.amount_usd_minor ?? 0;
+      return sum + (t.direction === 'inflow' ? usd : -usd);
+    }, 0);
+
+  const current = (transactions as Transaction[]).filter((t) => t.txn_date >= from);
+  const prior = (transactions as Transaction[]).filter(
+    (t) => t.txn_date >= priorFrom && t.txn_date < from,
+  );
+
+  return {
+    cashChange: explainCashChange(
+      snapshot.cash.totalUsdMinor - movedInWindow,
+      transactions as Transaction[],
+      from,
+      asOf,
+      rates,
+    ),
+    revenue: comparePeriods(current, prior, 'inflow', rates),
+    spending: comparePeriods(current, prior, 'outflow', rates),
+    anomalies: detectAnomalies(transactions as Transaction[], {
+      asOf,
+      lookbackDays: windowDays,
+      rates,
+    }),
+    windowDays,
+    asOf,
   };
 }

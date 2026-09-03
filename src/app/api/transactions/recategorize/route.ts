@@ -1,4 +1,5 @@
 import { requireApiSession } from '@/lib/auth';
+import { callerKey, crossOriginRefusal, rateLimitRefusal } from '@/lib/security';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { categorize } from '@/lib/categorize';
 import { RULE_AUDIT_REASON, isAutomatedAudit, recordAudit } from '@/lib/audit';
@@ -25,7 +26,17 @@ export const maxDuration = 60;
  * Every change it does make is written to the audit log like any other edit
  * (spec §24), attributed to whoever pressed the button.
  */
-export async function POST() {
+export async function POST(request: Request) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
+  // Re-reads every uncategorised row and writes an audit entry per change.
+  const tooMany = rateLimitRefusal(callerKey(request, 'recategorize'), {
+    limit: 4,
+    windowMs: 60000,
+  });
+  if (tooMany) return tooMany;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

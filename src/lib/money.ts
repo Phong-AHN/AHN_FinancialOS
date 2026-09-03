@@ -63,6 +63,7 @@ export function toMajor(minor: number, currency = DEFAULT_CURRENCY): number {
  * Handles the shapes that actually turn up in AHN statements:
  *   "$1,234.56"   "1,234.56"   "(1,234.56)"   "-1234.56"   "1.234.567"  (VN)
  *   "1.234,56"    (European / some VN exports)
+ *   "275.000"     (VN, ONE grouping dot - see the zero-decimal branch below)
  *
  * Returns null when the cell holds no parseable number, so the import can put
  * that row in the error bucket instead of silently booking a zero.
@@ -95,6 +96,20 @@ export function parseAmount(
   }
   if (!s) return null;
 
+  // A currency with no subunit cannot have a decimal separator at all, so every
+  // dot and comma in it is a grouping mark - UNLESS the trailing group is not
+  // three digits, which means whoever wrote it meant a decimal point after all.
+  //
+  // This is not a stylistic preference. "275.000" in the VN bank statement
+  // template is 275,000 dong; the general path below reads it as 275, because a
+  // single dot followed by three digits is exactly as valid a decimal as it is
+  // a separator. Every VND amount with one grouping mark was landing in the
+  // ledger a THOUSAND times too small, and 275 next to 275,000 looks like a
+  // small fee either way.
+  if (minorDigits(opts.currency ?? DEFAULT_CURRENCY) === 0) {
+    if (isGroupedInteger(s)) return applySign(Number(s.replace(/[.,]/g, '')), negative);
+  }
+
   const sep = opts.decimalSeparator ?? inferDecimalSeparator(s);
   if (sep === ',') {
     s = s.replace(/\./g, '').replace(',', '.');
@@ -110,6 +125,23 @@ export function parseAmount(
   if (!/^\d*\.?\d*$/.test(s) || s === '' || s === '.') return null;
 
   const value = Number(s);
+  if (!Number.isFinite(value)) return null;
+  return negative ? -value : value;
+}
+
+/**
+ * True when every separator in the string marks a group of exactly three
+ * digits: "1.234.567", "275.000", "1,234,567".
+ *
+ * "275.00" is NOT grouped - the trailing run is two digits - so a zero-decimal
+ * currency written with two decimal places is still read as 275 rather than
+ * inflated a hundredfold.
+ */
+function isGroupedInteger(s: string): boolean {
+  return /^\d{1,3}([.,]\d{3})+$/.test(s);
+}
+
+function applySign(value: number, negative: boolean): number | null {
   if (!Number.isFinite(value)) return null;
   return negative ? -value : value;
 }
@@ -213,7 +245,13 @@ export function formatMonths(months: number | null): string {
 
 export function formatPercent(ratio: number | null, digits = 1): string {
   if (ratio === null || !Number.isFinite(ratio)) return '—';
-  return `${(ratio * 100).toFixed(digits)}%`;
+  // The same minus sign `formatMoney` uses, not an ASCII hyphen. The two sit in
+  // adjacent columns of the same table, and a row reading "−$500.00  -8%" makes
+  // a reader stop on the typography instead of the number.
+  const magnitude = Math.abs(ratio * 100).toFixed(digits);
+  // "−0%" is not a thing. A value that rounds away to nothing is not negative.
+  const sign = ratio < 0 && Number(magnitude) !== 0 ? '−' : '';
+  return `${sign}${magnitude}%`;
 }
 
 /** Sum helper that keeps the "integers only" invariant obvious at call sites. */

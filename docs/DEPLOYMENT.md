@@ -77,10 +77,18 @@ setting — and stop the Railway service:
     { "path": "/api/cron/sync", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/digest?period=daily", "schedule": "0 2 * * *" },
     { "path": "/api/cron/digest?period=weekly", "schedule": "0 2 * * 1" },
-    { "path": "/api/cron/price-increases", "schedule": "0 3 * * *" }
+    { "path": "/api/cron/price-increases", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/exchange-rates", "schedule": "0 1 * * *" }
   ]
 }
 ```
+
+The exchange-rate job runs an **hour before** the digest, not after. Every USD
+figure the digest reports is converted through that table, so refreshing
+afterwards would mean the morning summary always quotes yesterday's rate. It is
+also kept off the ten-minute sync tick because Vietcombank asks for no more than
+one request every five minutes, and a feed that gets AHN rate-limited is worse
+than one that runs once a day.
 
 The price-increase sweep is deliberately its own daily job rather than part of
 the sync. It re-reads three years of outflows to rebuild the recurring-charge
@@ -172,6 +180,13 @@ Add these under **Variables**:
 
 Without `TZ` the container runs UTC, so a `DIGEST_HOUR` of 9 fires at 16:00 in
 Vietnam. Set it deliberately.
+
+**Set `BUSINESS_TIME_ZONE` on the app to the same value.** `TZ` decides when the
+worker *fires*; `BUSINESS_TIME_ZONE` decides what date the app calls "today"
+when it answers. If they disagree, the digest fires at 9am Vietnam and reports
+figures dated to whatever UTC thought the day was — which for the first seven
+hours of every Vietnamese day is yesterday. Stored dates are UTC either way; see
+decision 84.
 
 Do not set `PORT` — Railway assigns it, and the worker reads it.
 

@@ -31,6 +31,7 @@ import {
 import {
   addDays,
   currentMonthRange,
+  daysBetween,
   formatDayLabel,
   today,
   trailingDays,
@@ -46,6 +47,16 @@ import {
 } from '@/lib/alerts/format';
 import { channelConfigured, deliver } from '@/lib/alerts/channels';
 import { loadUsdRates } from '@/lib/fx';
+import {
+  agingBucket,
+  type Obligation,
+} from '@/lib/calc/obligations';
+import {
+  computeBudgetStatus,
+  type BudgetRow,
+  type BudgetStatus,
+  type ScopeContext as BudgetScopeContext,
+} from '@/lib/calc/budgets';
 import {
   detectRecurringCharges,
   type Cadence,
@@ -568,6 +579,334 @@ async function loadRecurringChargesFor(
   return {
     charges: detectRecurringCharges((data ?? []) as Transaction[], { asOf, rates }),
   };
+}
+
+/**
+ * Overspend alerts - Spec section 19, "alerts before overspend occurs".
+ *
+ * The word BEFORE is the requirement. An alert that fires once a budget is
+ * already over is a notification, not a warning - by then the money is gone.
+ * So this fires on the PROJECTION, which means it can be wrong, and everything
+ * below is about not being wrong often enough to be ignored.
+ *
+ *   - It will not fire on a projection it does not believe. Below the
+ *     confidence floor the run rate is arithmetic on almost no evidence.
+ *   - It fires once per budget per period, deduped through
+ *     `notifications.context`. A daily sweep re-announcing the same overspend
+ *     every morning is how a channel becomes noise - the same reasoning as the
+ *     price-increase alerts (decision 46).
+ *   - It fires again, once, when the budget actually goes over. That is a
+ *     different fact from "heading over" and worth saying.
+ */
+export async function runBudgetAlerts(
+  db: SupabaseClient,
+  options: { asOf?: ISODate } = {},
+): Promise<DispatchSummary> {
+  const summary = emptySummary();
+  const asOf = options.asOf ?? today();
+
+  const { data: rules } = await db
+    .from('alert_rules')
+    .select('*')
+    .eq('enabled', true)
+    .eq('type', 'budget_overspend');
+
+  const rule = (rules ?? [])[0] as AlertRule | undefined;
+  if (!rule) return summary;
+
+  // The share of budget the projection has to reach. Default 1: a projection
+  // that lands exactly on budget is not yet a problem.
+  const threshold = rule.threshold_number === null ? 1 : Number(rule.threshold_number);
+
+  const board = await loadBudgetBoardForAlerts(db, asOf);
+
+  const { data: alreadySent } = await db
+    .from('notifications')
+    .select('context')
+    .eq('alert_rule_id', rule.id)
+    .eq('status', 'sent');
+
+  const announced = new Set(
+    (alreadySent ?? [])
+      .map((n) => (n as { context?: { budgetKey?: string } }).context?.budgetKey)
+      .filter(Boolean) as string[],
+  );
+
+  for (const status of board) {
+    // A closed period cannot be warned about. Whatever happened, happened.
+    if (status.progress.hasEnded) continue;
+
+    const overBy = status.actualUsdMinor - status.budgetUsdMinor;
+    const projectedRatio =
+      status.budgetUsdMinor > 0 ? status.projectedFinalUsdMinor / status.budgetUsdMinor : 0;
+
+    const stage = status.overspent
+      ? 'over'
+      : projectedRatio >= threshold && status.projectionConfidence >= MIN_PROJECTION_CONFIDENCE
+        ? 'heading-over'
+        : null;
+
+    if (!stage) continue;
+
+    // Keyed by stage as well as by budget and period, so the "it has actually
+    // gone over now" alert is not suppressed by the earlier warning.
+    const key = `${status.budget.id}@${status.periodStart}:${stage}`;
+    if (announced.has(key)) continue;
+
+    const daysLeft = status.progress.daysTotal - status.progress.daysElapsed;
+
+    const headline =
+      stage === 'over'
+        ? `${status.budget.name} is over budget by ${formatMoney(overBy)}`
+        : `${status.budget.name} is on pace to go over budget`;
+
+    const detail =
+      stage === 'over'
+        ? `${formatMoney(status.actualUsdMinor)} spent against a ${formatMoney(
+            status.budgetUsdMinor,
+          )} budget, with ${daysLeft} day${daysLeft === 1 ? '' : 's'} still to run.`
+        : `${formatMoney(status.actualUsdMinor)} spent on day ${status.progress.daysElapsed} of ` +
+          `${status.progress.daysTotal}. At this pace the period ends at ` +
+          `${formatMoney(status.projectedFinalUsdMinor)} against a ` +
+          `${formatMoney(status.budgetUsdMinor)} budget, ` +
+          `${formatPercent(projectedRatio - 1, 0)} over. That is a projection from ` +
+          `${status.transactionCount} payments, not a certainty.`;
+
+    await persistAndDeliver(
+      db,
+      formatThresholdAlert({
+        kind: 'budget_overspend',
+        headline,
+        detail,
+        url: `${appUrl()}/budgets`,
+        severity: rule.severity,
+      }),
+      {
+        channels: [...new Set([...rule.channels, 'in_app' as NotificationChannel])],
+        severity: rule.severity,
+        ruleId: rule.id,
+      },
+      null,
+      summary,
+      { slackChannel: routeSlackChannel(rule.severity) },
+      {
+        budgetKey: key,
+        budgetName: status.budget.name,
+        budgetUsdMinor: status.budgetUsdMinor,
+        actualUsdMinor: status.actualUsdMinor,
+        projectedFinalUsdMinor: status.projectedFinalUsdMinor,
+        projectionConfidence: status.projectionConfidence,
+      },
+    );
+    announced.add(key);
+  }
+
+  return summary;
+}
+
+/**
+ * Below this the run rate is extrapolating from almost nothing.
+ *
+ * Even money. An alert that is wrong half the time is already borderline; one
+ * that is wrong more often trains its reader to dismiss the channel, and the
+ * real overspend goes with it.
+ */
+const MIN_PROJECTION_CONFIDENCE = 0.5;
+
+/**
+ * The same figures the page shows, loaded here rather than imported from
+ * `@/lib/data` - that module pulls in the page-level Supabase helpers, and the
+ * scheduler calls this with a service-role client.
+ */
+async function loadBudgetBoardForAlerts(
+  db: SupabaseClient,
+  asOf: ISODate,
+): Promise<BudgetStatus[]> {
+  const [budgetsRes, txnRes, projectsRes, accountsRes, rates] = await Promise.all([
+    db.from('budgets').select('*').eq('is_active', true),
+    db
+      .from('transactions')
+      .select('*')
+      .gte('txn_date', addDays(asOf, -450))
+      .lte('txn_date', asOf)
+      .limit(20_000),
+    db.from('projects').select('id,business_unit_id,client_id'),
+    db.from('financial_accounts').select('id,company_id'),
+    loadUsdRates(db, asOf),
+  ]);
+
+  const context: BudgetScopeContext = {
+    projectMeta: new Map(
+      (
+        (projectsRes.data ?? []) as Array<{
+          id: string;
+          business_unit_id: string | null;
+          client_id: string | null;
+        }>
+      ).map((p) => [p.id, { businessUnitId: p.business_unit_id, clientId: p.client_id }]),
+    ),
+    companyOfAccount: new Map(
+      ((accountsRes.data ?? []) as Array<{ id: string; company_id: string | null }>).map((a) => [
+        a.id,
+        a.company_id,
+      ]),
+    ),
+  };
+
+  const transactions = (txnRes.data ?? []) as Array<Transaction & { project_id?: string | null }>;
+  return ((budgetsRes.data ?? []) as BudgetRow[]).map((b) =>
+    computeBudgetStatus(b, transactions, asOf, context, rates),
+  );
+}
+
+/**
+ * Overdue receivables and upcoming obligations - Spec sections 17 and 18.
+ *
+ * Section 17 asks for alerts on "overdue invoices and large upcoming
+ * receivables"; section 18 for visibility of commitments "before money leaves
+ * the bank". Two different alerts, one sweep.
+ *
+ * BOTH DEDUPE BY EVENT, not by a cooldown. An invoice that is 40 days overdue
+ * is still 40 days overdue tomorrow, and a daily reminder about it is how a
+ * channel stops being read. Each fires once per item per aging bucket, so
+ * crossing from 30 days to 60 says something new and the days in between say
+ * nothing.
+ */
+export async function runObligationAlerts(
+  db: SupabaseClient,
+  options: { asOf?: ISODate } = {},
+): Promise<DispatchSummary> {
+  const summary = emptySummary();
+  const asOf = options.asOf ?? today();
+
+  const { data: ruleRows } = await db
+    .from('alert_rules')
+    .select('*')
+    .eq('enabled', true)
+    .in('type', ['overdue_receivable', 'upcoming_obligation']);
+
+  const rules = (ruleRows ?? []) as AlertRule[];
+  const overdueRule = rules.find((r) => r.type === 'overdue_receivable');
+  const upcomingRule = rules.find((r) => r.type === 'upcoming_obligation');
+  if (!overdueRule && !upcomingRule) return summary;
+
+  const [{ data: obligationRows }, rates] = await Promise.all([
+    db.from('obligations').select('*').in('status', ['open', 'draft']),
+    loadUsdRates(db, asOf),
+  ]);
+  const obligations = (obligationRows ?? []) as Obligation[];
+
+  const ruleIds = rules.map((r) => r.id);
+  const { data: alreadySent } = await db
+    .from('notifications')
+    .select('context')
+    .in('alert_rule_id', ruleIds)
+    .eq('status', 'sent');
+
+  const announced = new Set(
+    (alreadySent ?? [])
+      .map((n) => (n as { context?: { obligationKey?: string } }).context?.obligationKey)
+      .filter(Boolean) as string[],
+  );
+
+  const send = async (
+    rule: AlertRule,
+    key: string,
+    headline: string,
+    detail: string,
+    extra: Record<string, unknown>,
+  ) => {
+    if (announced.has(key)) return;
+    await persistAndDeliver(
+      db,
+      formatThresholdAlert({
+        kind: 'obligation',
+        headline,
+        detail,
+        url: `${appUrl()}/obligations`,
+        severity: rule.severity,
+      }),
+      {
+        channels: [...new Set([...rule.channels, 'in_app' as NotificationChannel])],
+        severity: rule.severity,
+        ruleId: rule.id,
+      },
+      null,
+      summary,
+      { slackChannel: routeSlackChannel(rule.severity) },
+      { obligationKey: key, ...extra },
+    );
+    announced.add(key);
+  };
+
+  // ── Overdue receivables (spec 17) ──
+  if (overdueRule) {
+    const floor = overdueRule.threshold_minor ?? 0;
+
+    for (const o of obligations) {
+      if (o.direction !== 'inflow') continue;
+      const bucket = agingBucket(o.due_on, asOf);
+      // Not overdue yet, so there is nothing to chase.
+      if (bucket === 'not_due' || bucket === 'current') continue;
+
+      const usd = obligationUsdMinor(o, rates);
+      if (usd < floor) continue;
+
+      const daysOver = daysBetween(o.due_on, asOf);
+      await send(
+        overdueRule,
+        // Keyed by bucket: crossing 30 days into 60 is news, the days between
+        // are the same fact repeated.
+        `${o.id}:${bucket}`,
+        `${o.counterparty_name ?? 'An invoice'} is ${daysOver} days overdue`,
+        `${formatMoney(usd)} was due on ${o.due_on}${o.reference ? ` (${o.reference})` : ''}. ` +
+          `${o.description ?? 'No description recorded'}.`,
+        { obligationId: o.id, amountUsdMinor: usd, daysOverdue: daysOver },
+      );
+    }
+  }
+
+  // ── Large upcoming commitments (spec 17 and 18) ──
+  if (upcomingRule) {
+    const floor = upcomingRule.threshold_minor ?? 0;
+    const horizon = addDays(asOf, UPCOMING_HORIZON_DAYS);
+
+    for (const o of obligations) {
+      if (o.due_on < asOf || o.due_on > horizon) continue;
+
+      const usd = obligationUsdMinor(o, rates);
+      if (usd < floor) continue;
+
+      const daysAway = daysBetween(asOf, o.due_on);
+      const isPayable = o.direction === 'outflow';
+
+      await send(
+        upcomingRule,
+        `${o.id}:upcoming`,
+        isPayable
+          ? `${formatMoney(usd)} due to ${o.counterparty_name ?? 'a supplier'} in ${daysAway} days`
+          : `${formatMoney(usd)} expected from ${o.counterparty_name ?? 'a client'} in ${daysAway} days`,
+        `${o.description ?? 'No description recorded'}. Due ${o.due_on}.` +
+          (isPayable
+            ? ' Cash after commitments is on the Owed & owing page.'
+            : ' Expected receipts are deliberately excluded from the cash figure there.'),
+        { obligationId: o.id, amountUsdMinor: usd, daysAway },
+      );
+    }
+  }
+
+  return summary;
+}
+
+/** How far ahead a commitment is worth mentioning. */
+const UPCOMING_HORIZON_DAYS = 14;
+
+function obligationUsdMinor(o: Obligation, rates: UsdRateMap): number {
+  const code = o.currency.toUpperCase();
+  if (code === 'USD') return o.amount_minor;
+  const rate = rates[code];
+  if (rate === undefined) return 0;
+  return Math.round(o.amount_minor * rate * 100);
 }
 
 /** Daily / weekly CFO digest (MVP Plan section 7). */

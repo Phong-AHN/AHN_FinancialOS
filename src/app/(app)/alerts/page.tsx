@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { requireSession } from '@/lib/auth';
+import { requireSession, sessionCan } from '@/lib/auth';
 import { loadAlertRules, loadNotifications } from '@/lib/data';
 import { channelConfigured } from '@/lib/alerts/channels';
 import { formatDateTime, relativeTime } from '@/lib/dates';
@@ -43,7 +43,7 @@ export default async function AlertsPage() {
     loadAlertRules(supabase),
     loadNotifications(supabase, 80),
   ]);
-  const canEdit = session.user.role === 'owner';
+  const canEdit = sessionCan(session, 'move_money');
 
   const channels: NotificationChannel[] = ['slack', 'email', 'sms'];
   const channelStatus = Object.fromEntries(

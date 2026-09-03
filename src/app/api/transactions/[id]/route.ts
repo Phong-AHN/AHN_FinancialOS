@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { requireApiSession } from '@/lib/auth';
+import { crossOriginRefusal } from '@/lib/security';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { updateWithAudit } from '@/lib/audit';
 import type { Transaction } from '@/lib/types';
@@ -29,6 +30,9 @@ const PatchSchema = z.object({
 });
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

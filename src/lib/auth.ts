@@ -10,6 +10,7 @@
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
 import { createSupabaseServerClient, isSupabaseConfigured } from '@/lib/supabase/server';
+import { CAPABILITY_REFUSAL, can, type Capability } from '@/lib/capabilities';
 import type { AppUser } from '@/lib/types';
 
 export interface Session {
@@ -102,20 +103,37 @@ export async function requireSession(): Promise<Session> {
   return session;
 }
 
-/** For pages that write. Viewers get a plain refusal, not a broken screen. */
-export async function requireOwner(): Promise<Session> {
+/**
+ * For pages that write.
+ *
+ * Named for the capability rather than the role, because there are seven roles
+ * now and a page that asks "is this the owner?" locks the CFO out of their own
+ * job. The database enforces the same thing through RLS; this exists so the
+ * refusal is a redirect rather than an empty screen.
+ */
+export async function requireCapability(capability: Capability): Promise<Session> {
   const session = await requireSession();
-  if (session.user.role !== 'owner') redirect('/?denied=owner-only');
+  if (!can(session.user.role, capability)) redirect(`/?denied=${capability}`);
   return session;
+}
+
+/** Kept for the pages that genuinely mean "may change money". */
+export async function requireOwner(): Promise<Session> {
+  return requireCapability('move_money');
 }
 
 export function isOwner(session: Session | null): boolean {
   return session?.user.role === 'owner';
 }
 
+/** The question almost every page actually wants to ask. */
+export function sessionCan(session: Session | null, capability: Capability): boolean {
+  return can(session?.user.role, capability);
+}
+
 /** For route handlers: a 401/403 instead of a redirect. */
 export async function requireApiSession(
-  options: { ownerOnly?: boolean } = {},
+  options: { ownerOnly?: boolean; capability?: Capability } = {},
 ): Promise<{ session: Session } | { response: Response }> {
   const session = await getSession();
   if (!session) {
@@ -123,12 +141,13 @@ export async function requireApiSession(
       response: Response.json({ error: 'Not signed in.' }, { status: 401 }),
     };
   }
-  if (options.ownerOnly && session.user.role !== 'owner') {
+  // `ownerOnly` predates the seven roles and now means "may change money" —
+  // otherwise every route written before §23 would lock out the CFO, whose job
+  // it is. A route can name a narrower capability instead.
+  const needed: Capability | null = options.capability ?? (options.ownerOnly ? 'move_money' : null);
+  if (needed && !can(session.user.role, needed)) {
     return {
-      response: Response.json(
-        { error: 'This action is restricted to the owner role.' },
-        { status: 403 },
-      ),
+      response: Response.json({ error: CAPABILITY_REFUSAL[needed] }, { status: 403 }),
     };
   }
   return { session };

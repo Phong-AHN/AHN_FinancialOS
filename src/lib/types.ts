@@ -22,11 +22,15 @@ export type SourceSystem =
   | 'quickbooks'
   | 'plaid'
   | 'stripe'
+  /** Aggregator; individual accounts only, so a fallback for Vietnam. */
+  | 'finverse'
+  /** VietinBank iConnect ERP Statement API — the corporate route. */
+  | 'vietinbank'
   | 'csv_vn_bank'
   | 'csv_veem'
   | 'csv_payroll'
   | 'manual';
-export type IntegrationProvider = 'quickbooks' | 'plaid' | 'stripe';
+export type IntegrationProvider = 'quickbooks' | 'plaid' | 'stripe' | 'finverse' | 'vietinbank';
 export type IntegrationStatus = 'disconnected' | 'connected' | 'error';
 export type TxnDirection = 'inflow' | 'outflow';
 export type ReconStatus =
@@ -44,11 +48,25 @@ export type AlertType =
   | 'low_balance'
   | 'daily_summary'
   | 'weekly_summary'
-  | 'price_increase';
+  | 'price_increase'
+  | 'budget_overspend'
+  | 'overdue_receivable'
+  | 'upcoming_obligation';
 export type AlertSeverity = 'info' | 'warning' | 'critical' | 'digest';
 export type NotificationChannel = 'slack' | 'email' | 'sms' | 'in_app';
 export type NotificationStatus = 'pending' | 'sent' | 'failed' | 'skipped';
-export type UserRole = 'owner' | 'viewer';
+/**
+ * Spec §23's seven roles. What each may do lives in `@/lib/capabilities`,
+ * mirroring the database, which is the authority.
+ */
+export type UserRole =
+  | 'owner'
+  | 'cfo'
+  | 'accountant'
+  | 'department_lead'
+  | 'project_manager'
+  | 'employee'
+  | 'viewer';
 
 export interface Company {
   id: string;
@@ -118,6 +136,8 @@ export interface Transaction {
   category: string | null;
   subcategory: string | null;
   is_internal_transfer: boolean;
+  /** Which project or event this line belongs to; null for overheads. */
+  project_id: string | null;
   is_recurring: boolean;
   is_subscription: boolean;
   source_system: SourceSystem;
@@ -255,4 +275,173 @@ export interface SyncResult {
   skipped: number;
   accounts_touched: number;
   error?: string;
+  /**
+   * Receivables and payables pulled alongside the cash (spec sections 17-18).
+   *
+   * Reported separately from `inserted` on purpose: these are accruals, and
+   * folding them into a count of transactions is the exact confusion the
+   * connector avoids by not ingesting invoices as cash in the first place.
+   */
+  obligations?: {
+    inserted: number;
+    updated: number;
+    settled: number;
+    skipped: number;
+  };
+}
+
+// ─── Projects and events (spec sections 12, 14, 15, 16) ─────────────────────
+
+export type ProjectKind = 'project' | 'event';
+export type ProjectStatus = 'planned' | 'active' | 'completed' | 'cancelled';
+
+export interface BusinessUnit {
+  id: string;
+  name: string;
+  /** Free text, because spec 15 requires these to stay admin-editable. */
+  services: string[];
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface Client {
+  id: string;
+  name: string;
+  normalized_name: string;
+  counterparty_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface Project {
+  id: string;
+  company_id: string | null;
+  business_unit_id: string | null;
+  client_id: string | null;
+  name: string;
+  code: string | null;
+  kind: ProjectKind;
+  service: string | null;
+  status: ProjectStatus;
+  starts_on: string | null;
+  ends_on: string | null;
+  /**
+   * Human-supplied. Null means nobody has said, which is not the same as zero -
+   * see the note in `@/lib/calc/projects`.
+   */
+  contracted_revenue_minor: number | null;
+  invoiced_revenue_minor: number | null;
+  budget_expense_minor: number | null;
+  /** Spec §13 targets, also human-supplied and also null until entered. */
+  estimated_hours: number | null;
+  labour_budget_minor: number | null;
+  currency: string;
+  owner_user_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectWithContext extends Project {
+  business_unit?: Pick<BusinessUnit, 'id' | 'name'> | null;
+  client?: Pick<Client, 'id' | 'name'> | null;
+}
+
+// ─── Time tracking (spec section 13) ────────────────────────────────────────
+
+export type PersonKind = 'employee' | 'contractor';
+/** The three costing bases spec §13 names. */
+export type CostBasis = 'salaried' | 'hourly' | 'contractor_rate';
+
+export interface PersonRow {
+  id: string;
+  name: string;
+  email: string | null;
+  kind: PersonKind;
+  basis: CostBasis;
+  /** Loaded: salary plus employer taxes and benefits, not the headline salary. */
+  annual_cost_minor: number | null;
+  hourly_cost_minor: number | null;
+  /** Hours available in a year. 1,880 is full-time after leave; 2,080 without. */
+  annual_hours: number;
+  currency: string;
+  is_active: boolean;
+  user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TimeEntryRow {
+  id: string;
+  person_id: string;
+  project_id: string;
+  work_date: string;
+  hours: number;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface TimeEntryWithContext extends TimeEntryRow {
+  person?: Pick<PersonRow, 'id' | 'name' | 'kind'> | null;
+  project?: Pick<Project, 'id' | 'name' | 'kind'> | null;
+}
+
+// ─── Budgets (spec section 19) ──────────────────────────────────────────────
+
+export type BudgetScopeName =
+  | 'company'
+  | 'business_unit'
+  | 'client'
+  | 'project'
+  | 'category'
+  | 'total';
+
+export type BudgetPeriodName = 'month' | 'quarter' | 'year';
+
+export interface Budget {
+  id: string;
+  name: string;
+  scope: BudgetScopeName;
+  /** The company, unit, client or project. Null for `category` and `total`. */
+  scope_id: string | null;
+  /** The category name. Categories are text on transactions, not rows. */
+  scope_key: string | null;
+  period: BudgetPeriodName;
+  starts_on: string;
+  amount_minor: number;
+  currency: string;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Receivables and payables (spec sections 17, 18) ────────────────────────
+
+export type ObligationStatusName = 'draft' | 'open' | 'settled' | 'void';
+
+export interface ObligationRow {
+  id: string;
+  /** `inflow` = owed to AHN (§17); `outflow` = owed by AHN (§18). */
+  direction: TxnDirection;
+  counterparty_id: string | null;
+  counterparty_name: string | null;
+  project_id: string | null;
+  category: string | null;
+  reference: string | null;
+  description: string | null;
+  amount_minor: number;
+  currency: string;
+  /** What was agreed, when only part of it has been invoiced. */
+  contracted_amount_minor: number | null;
+  issued_on: string | null;
+  due_on: string;
+  status: ObligationStatusName;
+  settled_txn_id: string | null;
+  settled_on: string | null;
+  is_recurring: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 }

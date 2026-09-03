@@ -3,6 +3,16 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireOwner } from '@/lib/auth';
 import { qboConfigProblems, qboConfigured, qboEnvironment } from '@/lib/connectors/quickbooks';
 import { plaidConfigProblems, plaidConfigured, plaidEnvironment } from '@/lib/connectors/plaid';
+import {
+  finverseConfigProblems,
+  finverseConfigured,
+  finverseEnvironment,
+} from '@/lib/connectors/finverse';
+import {
+  vietinbankConfigProblems,
+  vietinbankConfigured,
+  vietinbankEnvironment,
+} from '@/lib/connectors/vietinbank';
 import { stripeConfigProblems, stripeConfigured, stripeMode } from '@/lib/connectors/stripe';
 import { formatDateTime, relativeTime } from '@/lib/dates';
 import { PlaidLinkButton } from '@/components/PlaidLinkButton';
@@ -14,7 +24,7 @@ import { Badge, Callout, Card, LinkButton, PageHeader, SectionHeader, buttonClas
 export const dynamic = 'force-dynamic';
 
 interface ProviderMeta {
-  key: 'quickbooks' | 'plaid' | 'stripe';
+  key: 'quickbooks' | 'plaid' | 'stripe' | 'finverse' | 'vietinbank';
   name: string;
   role: string;
   detail: string;
@@ -32,7 +42,12 @@ interface ProviderMeta {
  * without counting its rows - or counting a source no card displays - is a
  * compile error rather than a silently empty figure.
  */
-const COUNTED_SOURCES: ReadonlyArray<ProviderMeta['key']> = ['quickbooks', 'plaid', 'stripe'];
+const COUNTED_SOURCES: ReadonlyArray<ProviderMeta['key']> = [
+  'quickbooks',
+  'plaid',
+  'stripe',
+  'finverse',
+];
 
 
 /**
@@ -91,6 +106,8 @@ export default async function IntegrationsPage({
   const plaidProblems = plaidConfigProblems();
   const plaidEnv = plaidEnvironment();
   const stripeProblems = stripeConfigProblems();
+  const finverseProblems = finverseConfigProblems();
+  const vtbProblems = vietinbankConfigProblems();
 
   const providers: ProviderMeta[] = [
     {
@@ -102,6 +119,26 @@ export default async function IntegrationsPage({
       envReady: qboConfigured() && qboProblems.length === 0,
       hasCredentials: qboConfigured(),
       problems: qboProblems,
+    },
+    {
+      key: 'vietinbank',
+      name: `VietinBank iConnect (${vietinbankEnvironment()})`,
+      role: 'Vietnamese bank, direct',
+      detail:
+        'The corporate ERP Statement API, written against the bank’s own OpenAPI document. This is the route that reaches AHN’s money — Finverse lists VietinBank and Techcombank as INDIVIDUAL accounts only. Authentication is two apiKey headers rather than OAuth2, and one call returns a whole statement for one account and date range.',
+      envReady: vietinbankConfigured() && vtbProblems.length === 0,
+      hasCredentials: vietinbankConfigured(),
+      problems: vtbProblems,
+    },
+    {
+      key: 'finverse',
+      name: `Finverse (${finverseEnvironment()})`,
+      role: 'Vietnamese bank accounts',
+      detail:
+        'The only route to a Vietnamese bank today: VietinBank\u2019s sandbox needs a registered application and Techcombank has no public one at all. Finverse already covers Techcombank, Vietcombank and VP Bank. The bank sign-in happens on their page \u2014 AHN\u2019s bank credentials never reach this system.',
+      envReady: finverseConfigured() && finverseProblems.length === 0,
+      hasCredentials: finverseConfigured(),
+      problems: finverseProblems,
     },
     {
       key: 'plaid',
@@ -182,7 +219,7 @@ export default async function IntegrationsPage({
                       ))}
                     </ul>
                   )}
-                  {provider.key === 'plaid' && plaidConfigured() && plaidEnv.valid && (
+                                    {provider.key === 'plaid' && plaidConfigured() && plaidEnv.valid && (
                     <p
                       className="mt-2 text-[12px]"
                       style={{ color: plaidEnv.isSimulated ? 'var(--warn)' : 'var(--text-faint)' }}

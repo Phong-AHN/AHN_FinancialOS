@@ -174,3 +174,55 @@ describe('run-together bank memos', () => {
     expect(splitRunTogetherWords('Starbucks')).toBe('Starbucks');
   });
 });
+
+describe('Vietnamese bank statement wording', () => {
+  it('treats money from the parent company as an internal transfer, not revenue', () => {
+    // Found by importing samples/vn-bank-statement.csv end to end: the line
+    // "NHAN TIEN TU CONG TY ME AHN MEDIA LLC" — money received from the parent
+    // company — matched no English transfer term and fell through to the broad
+    // inflow default, booking 430,000,000 VND as REVENUE. Funding the VN entity
+    // from the US parent is the largest inflow a subsidiary sees, so this
+    // inflated revenue, break-even and every margin downstream.
+    const guess = categorize({
+      description: 'NHAN TIEN TU CONG TY ME AHN MEDIA LLC',
+      direction: 'inflow',
+    });
+    expect(guess.category).toBe('transfer');
+    expect(guess.isInternalTransfer).toBe(true);
+  });
+
+  it('recognises the other ways a VN statement says the same thing', () => {
+    for (const text of [
+      'CHUYEN TIEN NOI BO GIUA CAC TAI KHOAN',
+      'CHUYEN KHOAN NOI BO',
+      'NAP TIEN VAO TAI KHOAN',
+      'CAP VON HOAT DONG QUY 3',
+      'GOP VON DIEU LE',
+    ]) {
+      const guess = categorize({ description: text, direction: 'inflow' });
+      expect(guess.isInternalTransfer, text).toBe(true);
+    }
+  });
+
+  it('still books a real customer payment as revenue', () => {
+    // The rule must not swallow ordinary VN inflows. "KHACH HANG THANH TOAN
+    // HOP DONG" is a customer paying a contract — revenue, and the same
+    // statement contains both lines.
+    const guess = categorize({
+      description: 'KHACH HANG THANH TOAN HOP DONG',
+      direction: 'inflow',
+    });
+    expect(guess.isInternalTransfer).toBe(false);
+    expect(guess.category).toBe('revenue');
+  });
+
+  it('reads the rest of the VN statement correctly', () => {
+    expect(
+      categorize({ description: 'CHUYEN LUONG NHAN VIEN THANG 06/2026', direction: 'outflow' })
+        .category,
+    ).toBe('people');
+    expect(
+      categorize({ description: 'PHI DICH VU NGAN HANG THANG 07', direction: 'outflow' }).category,
+    ).toBe('bank_fees');
+  });
+});

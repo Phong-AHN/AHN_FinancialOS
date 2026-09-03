@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { requireSession } from '@/lib/auth';
+import { requireSession, sessionCan } from '@/lib/auth';
 import { loadDashboard } from '@/lib/data';
-import { missingRates } from '@/lib/fx';
+import { loadRateStatus, missingRates } from '@/lib/fx';
+import { RateEditor } from '@/components/RateEditor';
 import { formatMoney, formatPercent } from '@/lib/money';
 import { formatDateTime, today } from '@/lib/dates';
 import type { Company } from '@/lib/types';
@@ -46,11 +47,13 @@ export default async function AccountsPage() {
   const supabase = createSupabaseServerClient();
   const asOf = today();
 
-  const [, { snapshot, accounts, rates }, companiesRes] = await Promise.all([
+  const [session, { snapshot, accounts, rates }, companiesRes, rateStatus] = await Promise.all([
     requireSession(),
     loadDashboard(supabase, asOf),
     supabase.from('companies').select('*'),
+    loadRateStatus(supabase, asOf),
   ]);
+  const canEdit = sessionCan(session, 'move_money');
 
   const companies = (companiesRes.data ?? []) as Company[];
   const companyName = (id: string) => companies.find((c) => c.id === id)?.name ?? 'Unknown entity';
@@ -76,6 +79,29 @@ export default async function AccountsPage() {
     rates,
   );
   const withVariance = cash.byAccount.filter((b) => b.varianceMinor !== null && b.varianceMinor !== 0);
+
+  // Every non-USD currency actually held, whether or not it has a rate. A
+  // currency with a rate still needs to be visible: a stale rate converts every
+  // balance in it silently, and nothing else on the page would show that.
+  //
+  // Currencies that are priced but not yet held are listed too. The daily feed
+  // fetches VND from the day it is switched on, and seeing that rate arrive —
+  // dated, sourced, current — is how anyone knows the feed works before the
+  // first dong is imported rather than the morning after.
+  const foreignCurrencies = [
+    ...new Set([
+      ...accounts
+        .filter((a) => a.is_active)
+        .map((a) => a.currency.toUpperCase())
+        .filter((c) => c !== 'USD'),
+      ...rateStatus.map((r) => r.currency),
+    ]),
+  ].sort();
+
+  const heldCurrencies = new Set(
+    accounts.filter((a) => a.is_active).map((a) => a.currency.toUpperCase()),
+  );
+  const staleRates = rateStatus.filter((r) => r.ageDays > 7 && heldCurrencies.has(r.currency));
 
   return (
     <>
@@ -112,8 +138,48 @@ export default async function AccountsPage() {
         <div className="mb-6">
           <Callout tone="warn" title="Missing exchange rate">
             No USD rate on file for {unpricedCurrencies.join(', ')}. Those balances are counted as
-            zero in the USD total rather than being treated 1:1 — add a rate to{' '}
-            <code>exchange_rates</code> to include them.
+            zero in the USD total rather than being treated 1:1 — understating is recoverable, a
+            25,000× overstatement in a runway figure is not. Set a rate below to include them.
+          </Callout>
+        </div>
+      )}
+
+      {foreignCurrencies.length > 0 && (
+        <div className="mb-6">
+          <Card>
+            <SectionHeader
+              title="Exchange rates"
+              subtitle="Refreshed daily from Vietcombank, an hour before the morning digest. A rate set by hand is never overwritten."
+            />
+            <ul className="divide-y divide-[var(--line)]">
+              {foreignCurrencies.map((currency) => (
+                <li key={currency} className="py-3 first:pt-0 last:pb-0">
+                  <RateEditor
+                    currency={currency}
+                    currentRate={rates[currency] ?? null}
+                    asOf={asOf}
+                    canEdit={canEdit}
+                    provenance={rateStatus.find((r) => r.currency === currency) ?? null}
+                  />
+                  {!heldCurrencies.has(currency) && (
+                    <p className="faint mt-1 text-[11px]">
+                      Priced daily, though no active account holds {currency} yet.
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </div>
+      )}
+
+      {staleRates.length > 0 && (
+        <div className="mb-6">
+          <Callout tone="warn" title="An exchange rate has stopped updating">
+            The rate for {staleRates.map((r) => r.currency).join(', ')} is more than a week old, and
+            every balance in it is still being converted by that number. Either the daily feed is
+            failing or a hand-set rate is standing in its way — check the worker&rsquo;s health
+            endpoint.
           </Callout>
         </div>
       )}

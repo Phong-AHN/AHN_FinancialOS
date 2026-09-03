@@ -1,10 +1,21 @@
 import { requireApiSession } from '@/lib/auth';
+import { callerKey, crossOriginRefusal, rateLimitRefusal } from '@/lib/security';
 import { createLinkToken, plaidConfigured } from '@/lib/connectors/plaid';
 
 export const dynamic = 'force-dynamic';
 
 /** Short-lived token that opens Plaid Link in the browser. */
-export async function POST() {
+export async function POST(request: Request) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
+  // Calls Plaid to mint a Link token.
+  const tooMany = rateLimitRefusal(callerKey(request, 'bank-connect'), {
+    limit: 6,
+    windowMs: 60000,
+  });
+  if (tooMany) return tooMany;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

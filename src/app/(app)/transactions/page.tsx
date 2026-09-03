@@ -63,6 +63,8 @@ export default async function TransactionsPage({
     operatingOnly: str(searchParams.operating) === '1',
     uncategorized: str(searchParams.uncategorized) === '1',
     source: str(searchParams.source),
+    projectId: str(searchParams.project),
+    unassigned: str(searchParams.unassigned) === '1',
     excludeDemo: str(searchParams.real) === '1',
     limit: PAGE_SIZE,
     offset: (page - 1) * PAGE_SIZE,

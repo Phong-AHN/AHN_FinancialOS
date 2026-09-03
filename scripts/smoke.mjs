@@ -75,10 +75,20 @@ const pages = [
   ['/accounts', ['Total cash', 'Provider says', 'Our records']],
   ['/transactions', ['Transactions', 'Counterparty']],
   ['/reconcile', ['Reconcile', 'Possible duplicates', 'Re-run categorisation']],
+  // State-independent: an empty portfolio renders the empty state, not the
+  // table, so checking for "Every project" would fail whenever there are none.
+  ['/projects', ['What each piece of work brought in']],
+  ['/explain', ['Where the cash went']],
+  ['/obligations', ['Money that is going to move']],
+  ['/budgets', ['What was planned, what has been spent']],
+  ['/simulator', ['What a growth rate implies']],
+  ['/people', ['People', 'Costing basis', 'Log hours']],
   ['/subscriptions', ['Recurring charges', 'Monthly recurring', 'Every recurring charge']],
   ['/alerts', ['Rules', 'End-to-end test', 'Delivery log']],
   ['/integrations', ['QuickBooks', 'Plaid', 'Stripe']],
   ['/import', ['Import a statement']],
+  ['/timesheet', ['My hours']],
+  ['/access', ['Who has access']],
   ['/audit', ['Audit log']],
 ];
 

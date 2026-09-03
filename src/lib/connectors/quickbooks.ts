@@ -332,3 +332,156 @@ export async function fetchQboAccounts(
   );
   return rows;
 }
+
+// ─── Receivables and payables (spec §17, §18) ───────────────────────────────
+
+/**
+ * Invoices and bills, which are ACCRUALS rather than cash.
+ *
+ * The transaction sync deliberately skips these: an invoice and the payment
+ * that settles it are two records of one event, and counting both would double
+ * every dollar AHN earns. They belong in `obligations`, which exists precisely
+ * to hold money that is going to move rather than money that has.
+ */
+interface QboObligationRow extends QboRow {
+  DocNumber?: string;
+  DueDate?: string;
+  Balance?: number | string;
+  CustomerMemo?: { value?: string };
+}
+
+export interface QboObligation {
+  externalId: string;
+  direction: TxnDirection;
+  counterpartyName: string | null;
+  reference: string | null;
+  description: string | null;
+  /** What is still owed, in minor units. Zero once it is paid. */
+  amountMinor: number;
+  /** What was originally invoiced or billed. */
+  contractedAmountMinor: number;
+  currency: string;
+  issuedOn: ISODate | null;
+  dueOn: ISODate;
+  isSettled: boolean;
+  /**
+   * The day QuickBooks last changed the row.
+   *
+   * For a settled invoice this is when the payment was applied — UNLESS
+   * somebody edited it afterwards, in which case it is the edit. QuickBooks
+   * does not put the settlement date on the invoice itself; it lives on the
+   * linked Payment, which is a second query per row. This is the best date
+   * available without that, and it is recorded as an approximation rather than
+   * presented as the payment date.
+   */
+  lastChangedOn: ISODate | null;
+}
+
+const OBLIGATION_ENTITIES: Array<{ entity: string; direction: TxnDirection }> = [
+  // An invoice is money owed TO AHN.
+  { entity: 'Invoice', direction: 'inflow' },
+  // A bill is money AHN owes.
+  { entity: 'Bill', direction: 'outflow' },
+];
+
+function isoDay(value: string | undefined): ISODate | null {
+  if (!value) return null;
+  const day = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
+/**
+ * Pull invoices and bills: everything currently open, plus anything that
+ * changed recently.
+ *
+ * TWO QUERIES, AND THE REASON IS THE WHOLE POINT OF THIS FUNCTION.
+ *
+ * The transaction sync pulls incrementally from the last successful run,
+ * because a transaction is immutable history — once written it never changes,
+ * so anything older has already been seen. An accrual is not history. It is
+ * live state: an invoice raised in June is still owed in September, and its
+ * balance moves without its transaction date ever changing.
+ *
+ * Filtering these by `TxnDate >= since` was the first attempt, and against the
+ * real company it returned nothing at all while QuickBooks held 31 invoices and
+ * 15 bills — every one of them dated before the last sync. A sync that reports
+ * "0 imported" with no error is the worst possible way to be wrong.
+ *
+ * So:
+ *   1. `Balance > '0'` — every open item, however old. This is the live state
+ *      that section 17 ages and chases.
+ *   2. `MetaData.LastUpdatedTime >= since` — anything touched since the last
+ *      run. Without this an invoice that got PAID would simply stop matching
+ *      query 1, and the obligation already stored for it would sit open
+ *      forever, ageing into the overdue bucket and being chased after it was
+ *      settled. A row has to be told it was paid.
+ *
+ * They are separate calls because the QuickBooks query language has no `or`;
+ * asking for one returns HTTP 400. Results are unioned on the row id.
+ *
+ * The value in `Balance > '0'` is quoted for the same reason: unquoted, the
+ * parser rejects the statement.
+ */
+export async function fetchQboObligations(opts: {
+  accessToken: string;
+  realmId: string;
+  since: ISODate;
+}): Promise<QboObligation[]> {
+  const out: QboObligation[] = [];
+
+  for (const { entity, direction } of OBLIGATION_ENTITIES) {
+    const [open, changed] = await Promise.all([
+      queryAll<QboObligationRow>(opts.accessToken, opts.realmId, entity, "Balance > '0'"),
+      queryAll<QboObligationRow>(
+        opts.accessToken,
+        opts.realmId,
+        entity,
+        `MetaData.LastUpdatedTime >= '${opts.since}T00:00:00+00:00'`,
+      ),
+    ]);
+
+    const byId = new Map<string, QboObligationRow>();
+    for (const row of [...open, ...changed]) byId.set(row.Id, row);
+    const rows = [...byId.values()];
+
+    for (const row of rows) {
+      const currency = (row.CurrencyRef?.value ?? 'USD').toUpperCase();
+      const total = Number(row.TotalAmt ?? 0);
+      // `Balance` is absent on some rows; treating that as "nothing owed" would
+      // silently settle a live invoice, so it falls back to the total.
+      const balance = row.Balance === undefined ? total : Number(row.Balance);
+      if (!Number.isFinite(total) || total <= 0) continue; // voided or empty
+
+      const dueOn = isoDay(row.DueDate) ?? isoDay(row.TxnDate);
+      // `due_on` is NOT NULL, and a due date is the whole basis of aging. A row
+      // without one cannot be aged, so it is skipped rather than given a made-up
+      // date that would put it in a bucket it does not belong in.
+      if (!dueOn) continue;
+
+      const party = direction === 'inflow' ? row.CustomerRef : row.VendorRef;
+
+      out.push({
+        externalId: `${entity}:${row.Id}`,
+        direction,
+        counterpartyName: party?.name?.trim() || null,
+        reference: row.DocNumber?.trim() || null,
+        description:
+          row.CustomerMemo?.value?.trim() ||
+          row.PrivateNote?.trim() ||
+          row.Line?.find((l) => l.Description)?.Description?.trim() ||
+          null,
+        // What is owed now, which is what §17 and §18 age and chase.
+        amountMinor: toMinor(Math.max(balance, 0), currency),
+        // What was agreed, which is what the schema keeps alongside it.
+        contractedAmountMinor: toMinor(total, currency),
+        currency,
+        issuedOn: isoDay(row.TxnDate),
+        dueOn,
+        isSettled: Math.abs(balance) < 0.005,
+        lastChangedOn: isoDay(row.MetaData?.LastUpdatedTime),
+      });
+    }
+  }
+
+  return out;
+}

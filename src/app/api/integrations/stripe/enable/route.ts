@@ -1,4 +1,5 @@
 import { requireApiSession } from '@/lib/auth';
+import { crossOriginRefusal } from '@/lib/security';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { fetchStripeBalance, stripeConfigured } from '@/lib/connectors/stripe';
 import { saveIntegrationTokens, syncStripe } from '@/lib/sync';
@@ -12,7 +13,10 @@ export const maxDuration = 60;
  * credential. This verifies the key actually works before recording anything,
  * so a typo surfaces here rather than as a silent cron failure hours later.
  */
-export async function POST() {
+export async function POST(request: Request) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

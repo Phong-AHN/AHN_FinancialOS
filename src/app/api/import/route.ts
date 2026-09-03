@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { requireApiSession } from '@/lib/auth';
+import { callerKey, crossOriginRefusal, rateLimitRefusal } from '@/lib/security';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { CSV_PRESETS, mapRowsToTransactions, parseCsv, type ColumnMap } from '@/lib/connectors/csv';
 import { ingestTransactions } from '@/lib/ingest';
@@ -41,6 +42,16 @@ const ImportSchema = z.object({
  * duplicate-checked exactly like the rest.
  */
 export async function POST(request: Request) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
+  // Parses and inserts an uploaded file; the body cap is 8MB.
+  const tooMany = rateLimitRefusal(callerKey(request, 'import'), {
+    limit: 10,
+    windowMs: 60000,
+  });
+  if (tooMany) return tooMany;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

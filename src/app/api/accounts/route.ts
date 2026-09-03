@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { requireApiSession } from '@/lib/auth';
+import { crossOriginRefusal } from '@/lib/security';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { ensureDefaultCompany } from '@/lib/sync';
 import { parseAmountToMinor } from '@/lib/money';
@@ -21,6 +22,9 @@ const AccountSchema = z.object({
  * external id, so they never collide with these.
  */
 export async function POST(request: Request) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

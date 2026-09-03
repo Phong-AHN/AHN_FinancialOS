@@ -64,12 +64,12 @@ export function decryptNullable(value: string | null | undefined): string | null
 }
 
 /**
- * Constant-time-ish comparison for shared secrets (cron bearer tokens).
- * Avoids leaking the secret length/prefix through early-exit timing.
+ * Constant-time comparison for shared secrets.
+ *
+ * Delegates to `@/lib/security`, which hashes both sides first so the length of
+ * the input reveals nothing about the length of the secret. The version that
+ * lived here returned early on a length mismatch, which leaked exactly that.
+ *
+ * Kept as a re-export because callers already import it from here.
  */
-export function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
+export { constantTimeEqual as safeEqual } from '@/lib/security';

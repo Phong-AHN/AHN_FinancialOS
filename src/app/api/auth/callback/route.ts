@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { safeNextPath } from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +26,10 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get('code');
   const tokenHash = searchParams.get('token_hash');
   const type = searchParams.get('type') as EmailOtpType | null;
-  const next = searchParams.get('next') ?? '/';
+  // Never redirect to a raw query parameter. `?next=//evil.com` becomes
+  // `https://ourapp.com//evil.com`, which browsers follow off-site — handing
+  // an attacker a landing page AFTER a genuine sign-in.
+  const next = safeNextPath(searchParams.get('next'));
 
   // Supabase reports its own failures (expired link, already used) as query
   // params rather than as a missing code. Surface the real reason.

@@ -17,8 +17,49 @@ export function parseISODate(s: ISODate): Date {
   return new Date(`${s}T00:00:00.000Z`);
 }
 
-export function today(now: Date = new Date()): ISODate {
-  return toISODate(now);
+/**
+ * The zone that decides what "today" means for this company.
+ *
+ * AHN operates from Vietnam. The servers do not: Vercel runs in UTC, and so
+ * does most CI. Every date already STORED is a UTC ISO string and stays that
+ * way — that is what keeps a transaction booked on the 1st in the same month
+ * for a reader in California and a reader in Ho Chi Minh City.
+ *
+ * But "what day is it right now" is a different question from "what month does
+ * this stored date belong to", and UTC is the wrong clock for the first one.
+ * Between midnight and 07:00 in Vietnam, UTC is still on yesterday — so for
+ * seven hours a day the dashboard headed "as of" would name the wrong day,
+ * break-even would count a day that had already ended, and a rate fetched at
+ * 06:00 would be filed under the previous date.
+ */
+export const BUSINESS_TIME_ZONE = process.env.BUSINESS_TIME_ZONE || 'Asia/Ho_Chi_Minh';
+
+let warnedAboutZone = false;
+
+/**
+ * Today's date where the business is, not where the server happens to run.
+ *
+ * `en-CA` is not a style choice: it is the locale whose short date format is
+ * already YYYY-MM-DD, so no reassembly of parts is needed and no locale can
+ * quietly reorder day and month.
+ */
+export function today(now: Date = new Date(), timeZone: string = BUSINESS_TIME_ZONE): ISODate {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  } catch {
+    // An unknown zone name must not take the whole app down over a date. UTC is
+    // the old behaviour, so falling back to it is the smallest possible loss.
+    if (!warnedAboutZone) {
+      warnedAboutZone = true;
+      console.warn(`[dates] BUSINESS_TIME_ZONE "${timeZone}" is not a zone this runtime knows; using UTC.`);
+    }
+    return toISODate(now);
+  }
 }
 
 /** First day of the month containing `d`. */
@@ -126,12 +167,16 @@ export function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
+  // Rendered in the business's zone for the same reason `today()` is computed
+  // in it. Without the zone this used the server's, which on Vercel is UTC —
+  // so "last synced 5:42 PM" was shown to somebody for whom it was 12:42 AM.
   return d.toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    timeZone: BUSINESS_TIME_ZONE,
   });
 }
 

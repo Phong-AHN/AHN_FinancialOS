@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { requireSession } from '@/lib/auth';
-import { loadAuditForRecord, loadTransaction } from '@/lib/data';
+import { requireSession, sessionCan } from '@/lib/auth';
+import { loadAuditForRecord, loadProjectOptions, loadTransaction } from '@/lib/data';
 import { formatDateTime, relativeTime } from '@/lib/dates';
 import { formatMoney } from '@/lib/money';
 import { categoryLabel } from '@/lib/categorize';
+import { ProjectAssigner } from '@/components/ProjectAssigner';
 import { TransactionEditor } from '@/components/TransactionEditor';
 import type { NotificationRow, TransactionWithContext } from '@/lib/types';
 import {
@@ -35,7 +36,7 @@ export default async function TransactionDetailPage({ params }: { params: { id: 
   const txn = await loadTransaction(supabase, params.id);
   if (!txn) notFound();
 
-  const [audit, notificationsRes, duplicateOf] = await Promise.all([
+  const [audit, notificationsRes, duplicateOf, projectOptions] = await Promise.all([
     loadAuditForRecord(supabase, 'transactions', txn.id),
     supabase
       .from('notifications')
@@ -43,6 +44,7 @@ export default async function TransactionDetailPage({ params }: { params: { id: 
       .eq('transaction_id', txn.id)
       .order('created_at', { ascending: false }),
     txn.duplicate_of_id ? loadTransaction(supabase, txn.duplicate_of_id) : Promise.resolve(null),
+    loadProjectOptions(supabase),
   ]);
 
   const notifications = (notificationsRes.data ?? []) as NotificationRow[];
@@ -147,18 +149,34 @@ export default async function TransactionDetailPage({ params }: { params: { id: 
         </Card>
       </div>
 
+      {/* ── Project attribution (spec 12) ─────────────────────────────────── */}
+      <div className="mt-4">
+        <Card>
+          <SectionHeader
+            title="Which project does this belong to?"
+            subtitle="Nothing is attributed automatically. A bank line does not say which project it is for, and a guess would put real money against the wrong P&L."
+          />
+          <ProjectAssigner
+            transactionId={txn.id}
+            current={txn.project_id}
+            options={projectOptions}
+            canEdit={sessionCan(session, 'move_money')}
+          />
+        </Card>
+      </div>
+
       {/* ── Edit ──────────────────────────────────────────────────────────── */}
       <div className="mt-4">
         <Card>
           <SectionHeader
             title="Correct this transaction"
             subtitle={
-              session.user.role === 'owner'
+              sessionCan(session, 'move_money')
                 ? 'Every change is written to the audit log with the old value, the new value and your name.'
                 : 'Read-only: editing financial data is restricted to the owner role.'
             }
           />
-          <TransactionEditor transaction={serialize(txn)} canEdit={session.user.role === 'owner'} />
+          <TransactionEditor transaction={serialize(txn)} canEdit={sessionCan(session, 'move_money')} />
         </Card>
       </div>
 

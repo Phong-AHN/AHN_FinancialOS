@@ -74,9 +74,12 @@ Integrations are optional to boot and can be added one at a time on
 | Plaid | `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` | Development env connects up to 100 real accounts |
 | Stripe | `STRIPE_SECRET_KEY` | Read-only usage |
 | Slack | `SLACK_BOT_TOKEN` + `SLACK_DEFAULT_CHANNEL`, or `SLACK_WEBHOOK_URL` | Optional per-severity routing via `SLACK_CHANNEL_CRITICAL` / `_WARNING` / `_DIGEST` |
+| Slack commands | `SLACK_SIGNING_SECRET` | For `/ahn cash`, `runway`, `burn`, `breakeven`, `spend`, `unusual`. Each asker's Slack id must be linked to a user row — workspace membership alone grants nothing |
 | Email | `RESEND_API_KEY`, `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO` | |
 | SMS | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`, `ALERT_SMS_TO` | Warning/critical only |
 | Cron | `CRON_SECRET` | Required, or `/api/cron/*` refuses to run. The schedule runs on Railway, not Vercel — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| Exchange rates | — | **No key needed.** Vietcombank's public rate file, with exchangerate-api behind it. Refreshed daily by the worker, an hour before the digest |
+| Business clock | `BUSINESS_TIME_ZONE` | Defaults to `Asia/Ho_Chi_Minh`. Decides what "today" means; stored dates stay UTC. Keep it the same as the worker's `TZ` |
 
 > **Use the Session pooler URI, not the direct one.** Supabase's direct host,
 > `db.<ref>.supabase.co`, publishes only an AAAA record — on an IPv4-only network

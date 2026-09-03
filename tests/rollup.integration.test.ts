@@ -136,11 +136,13 @@ describe.skipIf(!CONFIGURED)('multi-source rollup (live database)', () => {
     const rank: Record<SourceSystem, number> = {
       quickbooks: 0,
       plaid: 1,
-      stripe: 2,
-      csv_vn_bank: 3,
-      csv_veem: 4,
-      csv_payroll: 5,
-      manual: 6,
+      vietinbank: 2,
+      finverse: 3,
+      stripe: 4,
+      csv_vn_bank: 5,
+      csv_veem: 6,
+      csv_payroll: 7,
+      manual: 8,
     };
 
     for (const row of transactions) {

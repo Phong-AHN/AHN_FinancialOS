@@ -1,6 +1,10 @@
 import { authorizeCron } from '@/lib/cron';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
-import { runPriceIncreaseAlerts } from '@/lib/alerts/engine';
+import {
+  runBudgetAlerts,
+  runObligationAlerts,
+  runPriceIncreaseAlerts,
+} from '@/lib/alerts/engine';
 import { today } from '@/lib/dates';
 
 export const dynamic = 'force-dynamic';
@@ -36,14 +40,24 @@ export async function GET(request: Request) {
 
   const db = createSupabaseAdminClient();
   const startedAt = Date.now();
-  const summary = await runPriceIncreaseAlerts(db, { asOf: today() });
+  const asOf = today();
+  const summary = await runPriceIncreaseAlerts(db, { asOf });
+  // Budgets ride the same daily job: both are sweeps over derived state
+  // rather than reactions to a single transaction, and both dedupe by event
+  // so running them daily announces each thing exactly once.
+  const budgets = await runBudgetAlerts(db, { asOf });
+  // Receivables and commitments join the same daily job for the same reason:
+  // a sweep over derived state, deduped by event, so once a day announces
+  // each thing exactly once.
+  const owed = await runObligationAlerts(db, { asOf });
 
   return Response.json({
     ok: true,
     durationMs: Date.now() - startedAt,
-    sent: summary.notificationsSent,
-    failed: summary.notificationsFailed,
-    skipped: summary.notificationsSkipped,
-    errors: summary.errors.slice(0, 10),
+    sent: summary.notificationsSent + budgets.notificationsSent + owed.notificationsSent,
+    failed: summary.notificationsFailed + budgets.notificationsFailed + owed.notificationsFailed,
+    skipped:
+      summary.notificationsSkipped + budgets.notificationsSkipped + owed.notificationsSkipped,
+    errors: [...summary.errors, ...budgets.errors, ...owed.errors].slice(0, 10),
   });
 }

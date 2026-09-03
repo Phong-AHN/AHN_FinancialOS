@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { requireSession } from '@/lib/auth';
+import { requireSession, sessionCan } from '@/lib/auth';
 import { loadDashboard, loadTransactions } from '@/lib/data';
 import { formatMoney } from '@/lib/money';
 import { today } from '@/lib/dates';
@@ -47,7 +47,7 @@ export default async function ReconcilePage() {
     loadTransactions(supabase, { status: 'possible_duplicate', limit: 50 }),
     loadTransactions(supabase, { uncategorized: true, limit: 50 }),
   ]);
-  const canEdit = session.user.role === 'owner';
+  const canEdit = sessionCan(session, 'move_money');
 
   const outOfBalance = snapshot.cash.byAccount.filter(
     (b) => b.varianceMinor !== null && b.varianceMinor !== 0,

@@ -3,6 +3,7 @@ import {
   convertMinor,
   formatMoney,
   formatMonths,
+  formatPercent,
   parseAmount,
   parseAmountToMinor,
   roundHalfUp,
@@ -95,5 +96,85 @@ describe('formatting', () => {
   it('shows infinite runway when nothing is going out', () => {
     expect(formatMonths(null)).toBe('∞');
     expect(formatMonths(7.84)).toBe('7.8 months');
+  });
+});
+
+describe('formatPercent', () => {
+  it('uses the same minus sign as formatMoney', () => {
+    // They sit in adjacent columns of the same table. A row reading
+    // "−$500.00  -8%" makes a reader stop on the typography, not the number.
+    expect(formatPercent(-0.08, 0)).toBe('−8%');
+    expect(formatMoney(-50_000)).toBe('−$500.00');
+  });
+
+  it('does not render a negative zero', () => {
+    // −0.04% rounded to a whole percent is nothing, and "−0%" is not a thing.
+    expect(formatPercent(-0.0004, 0)).toBe('0%');
+    expect(formatPercent(-0.004, 1)).toBe('−0.4%');
+  });
+
+  it('says nothing rather than zero when there is no ratio', () => {
+    // A margin on no revenue is unknown, not break-even.
+    expect(formatPercent(null)).toBe('—');
+    expect(formatPercent(Number.NaN)).toBe('—');
+    expect(formatPercent(Number.POSITIVE_INFINITY)).toBe('—');
+  });
+
+  it('still formats a positive ratio plainly', () => {
+    expect(formatPercent(0.2285, 0)).toBe('23%');
+    expect(formatPercent(1)).toBe('100.0%');
+  });
+});
+
+describe('zero-decimal currencies (VND)', () => {
+  it('reads a single grouping dot as thousands, not as a decimal point', () => {
+    // The bug this exists for: "275.000" is 275,000 dong — a bank fee line in
+    // samples/vn-bank-statement.csv. The general path read it as 275, because
+    // one dot followed by three digits is exactly as valid a decimal as it is a
+    // separator. Every VND amount with one grouping mark was landing in the
+    // ledger a THOUSAND times too small, and 275 beside 275,000 still looks
+    // like a plausible small fee.
+    expect(parseAmount('275.000', { currency: 'VND' })).toBe(275_000);
+    expect(parseAmountToMinor('275.000', 'VND')).toBe(275_000);
+  });
+
+  it('still reads multiple grouping marks correctly', () => {
+    expect(parseAmount('412.500.000', { currency: 'VND' })).toBe(412_500_000);
+    expect(parseAmount('1.234.567', { currency: 'VND' })).toBe(1_234_567);
+    expect(parseAmount('1,234,567', { currency: 'VND' })).toBe(1_234_567);
+  });
+
+  it('does not inflate an amount someone wrote with two decimal places', () => {
+    // "275.00" is not grouped — the trailing run is two digits — so it stays
+    // 275 rather than becoming 27,500. VND has no subunit either way.
+    expect(parseAmount('275.00', { currency: 'VND' })).toBe(275);
+    expect(parseAmount('275.5', { currency: 'VND' })).toBe(275.5);
+  });
+
+  it('leaves USD alone', () => {
+    // The same string means something different in a currency that HAS cents,
+    // so the grouping rule is scoped to zero-decimal currencies only.
+    expect(parseAmount('275.000', { currency: 'USD' })).toBe(275);
+    expect(parseAmount('1.234', { currency: 'USD' })).toBe(1.234);
+    expect(parseAmount('1,234.56', { currency: 'USD' })).toBe(1234.56);
+  });
+
+  it('keeps signs and accounting parentheses', () => {
+    expect(parseAmount('-412.500.000', { currency: 'VND' })).toBe(-412_500_000);
+    expect(parseAmount('(275.000)', { currency: 'VND' })).toBe(-275_000);
+  });
+
+  it('parses every amount in the VN bank template', () => {
+    const rows: Array<[string, number]> = [
+      ['412.500.000', 412_500_000],
+      ['8.450.000', 8_450_000],
+      ['430.000.000', 430_000_000],
+      ['275.000', 275_000],
+      ['3.120.000', 3_120_000],
+      ['185.000.000', 185_000_000],
+    ];
+    for (const [raw, expected] of rows) {
+      expect(parseAmountToMinor(raw, 'VND'), raw).toBe(expected);
+    }
   });
 });

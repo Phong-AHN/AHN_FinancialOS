@@ -3,24 +3,45 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { UserRole } from '@/lib/types';
+import { ROLE_LABELS, can, type Capability } from '@/lib/capabilities';
 
 interface NavItem {
   href: string;
   label: string;
   hint: string;
-  ownerOnly?: boolean;
+  /**
+   * The capability a person needs before this destination is worth showing.
+   *
+   * Hiding a link is a courtesy, not a control — Row Level Security is what
+   * actually stops the request. But a menu full of pages that answer "you may
+   * not see this" is a menu nobody trusts, so the two are kept in step.
+   */
+  needs?: Capability;
 }
 
 const NAV: NavItem[] = [
-  { href: '/', label: 'CEO home', hint: 'Cash, runway, break-even' },
+  // A scoped reader — a project manager, a department lead — sees their own
+  // projects and the money attributed to them, and the pages that show only
+  // company-wide figures are not offered to them at all.
+  { href: '/', label: 'CEO home', hint: 'Cash, runway, break-even', needs: 'see_all_money' },
   { href: '/transactions', label: 'Transactions', hint: 'Every dollar, drillable' },
-  { href: '/accounts', label: 'Accounts', hint: 'Balances by account and entity' },
-  { href: '/reconcile', label: 'Reconcile', hint: 'Duplicates and missing categories' },
-  { href: '/import', label: 'Import CSV', hint: 'VN bank, VEEM, payroll', ownerOnly: true },
-  { href: '/subscriptions', label: 'Recurring', hint: 'Subscriptions and price rises' },
-  { href: '/alerts', label: 'Alerts', hint: 'Rules and delivery log' },
-  { href: '/integrations', label: 'Integrations', hint: 'QuickBooks, Plaid, Stripe', ownerOnly: true },
-  { href: '/audit', label: 'Audit log', hint: 'Who changed what', ownerOnly: true },
+  { href: '/explain', label: 'What changed', hint: 'Where cash went, who moved', needs: 'see_all_money' },
+  { href: '/accounts', label: 'Accounts', hint: 'Balances by account and entity', needs: 'see_all_money' },
+  { href: '/reconcile', label: 'Reconcile', hint: 'Duplicates and missing categories', needs: 'categorise' },
+  { href: '/import', label: 'Import CSV', hint: 'VN bank, VEEM, payroll', needs: 'categorise' },
+  { href: '/projects', label: 'Projects', hint: 'Project and event P&L' },
+  { href: '/obligations', label: 'Owed & owing', hint: 'Receivables, bills, cash after them' },
+  { href: '/budgets', label: 'Budgets', hint: 'Plan vs. actual, and the pace' },
+  { href: '/simulator', label: 'Growth & margin', hint: 'Targets and scenarios', needs: 'see_all_money' },
+  { href: '/people', label: 'People & time', hint: 'Rates and hours on projects', needs: 'manage_people' },
+  // No `needs`: logging your own hours is the one thing every role can do,
+  // and it is the only page an employee has any use for.
+  { href: '/timesheet', label: 'My hours', hint: 'Log time against a project' },
+  { href: '/subscriptions', label: 'Recurring', hint: 'Subscriptions and price rises', needs: 'see_all_money' },
+  { href: '/alerts', label: 'Alerts', hint: 'Rules and delivery log', needs: 'see_all_money' },
+  { href: '/integrations', label: 'Integrations', hint: 'QuickBooks, Plaid, Stripe', needs: 'manage_integrations' },
+  { href: '/access', label: 'Who has access', hint: 'Roles, and Slack accounts' },
+  { href: '/audit', label: 'Audit log', hint: 'Who changed what', needs: 'read_audit' },
 ];
 
 export function Sidebar({
@@ -42,7 +63,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto p-2.5">
-        {NAV.filter((item) => !item.ownerOnly || role === 'owner').map((item) => {
+        {NAV.filter((item) => !item.needs || can(role, item.needs)).map((item) => {
           const active =
             item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
           return (
@@ -82,7 +103,7 @@ export function Sidebar({
           {email}
         </p>
         <div className="mt-1 flex items-center justify-between">
-          <span className="faint text-[11px] capitalize">{role}</span>
+          <span className="faint text-[11px]">{ROLE_LABELS[role]}</span>
           <form action="/api/auth/signout" method="post">
             <button type="submit" className="faint text-[11px] underline underline-offset-2">
               Sign out

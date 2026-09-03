@@ -1,0 +1,439 @@
+{
+  "swagger" : "2.0",
+  "info" : {
+    "x-ibm-name" : "statement",
+    "title" : "Statement",
+    "version" : "1.0.0",
+    "contact" : {
+      "name" : "",
+      "email" : "iConnect@vietinbank.vn"
+    },
+    "description" : "Vấn tin sao kê"
+  },
+  "schemes" : [ "https" ],
+  "host" : "sandbox.vietinbank.vn",
+  "basePath" : "/vtb/openbanking/erp/v1/statement",
+  "consumes" : [ "application/json" ],
+  "produces" : [ "application/json" ],
+  "securityDefinitions" : {
+    "clientIdHeader" : {
+      "description" : "",
+      "in" : "header",
+      "name" : "X-IBM-Client-Id",
+      "type" : "apiKey"
+    },
+    "clientSecretHeader" : {
+      "description" : "",
+      "in" : "header",
+      "name" : "X-IBM-Client-Secret",
+      "type" : "apiKey"
+    }
+  },
+  "security" : [ {
+    "clientIdHeader" : [ ],
+    "clientSecretHeader" : [ ]
+  } ],
+  "x-ibm-configuration" : {
+    "testable" : true,
+    "enforced" : true,
+    "cors" : {
+      "enabled" : true
+    },
+    "phase" : "realized",
+    "type" : "rest",
+    "servers" : [ {
+      "url" : "https://sandbox.vietinbank.vn/vtb/openbanking/erp/v1/statement",
+      "description" : "",
+      "type" : [ "production", "development" ]
+    } ]
+  },
+  "paths" : {
+    "/inquiry" : {
+      "post" : {
+        "responses" : {
+          "200" : {
+            "description" : "200 OK",
+            "schema" : {
+              "$ref" : "#/definitions/ResponseInq"
+            }
+          }
+        },
+        "parameters" : [ {
+          "name" : "payload",
+          "required" : false,
+          "in" : "body",
+          "schema" : {
+            "$ref" : "#/definitions/RequestInq"
+          }
+        } ],
+        "summary" : "Sao kê tài khoản",
+        "description" : "Vấn tin sao kê tài khoản"
+      }
+    }
+  },
+  "definitions" : {
+    "RequestInq" : {
+      "type" : "object",
+      "properties" : {
+        "model" : {
+          "type" : "string",
+          "maxLength" : 5,
+          "description" : "Mô hình đối tác sử dụng",
+          "example" : "1"
+        },
+        "requestId" : {
+          "type" : "string",
+          "maxLength" : 30,
+          "description" : "Số giao dịch gửi lô do đối tác gửi sang",
+          "example" : "343q433410001"
+        },
+        "providerId" : {
+          "type" : "string",
+          "maxLength" : 25,
+          "description" : "Mã nhà cung cấp dịch vụ",
+          "example" : "khaianh"
+        },
+        "merchantId" : {
+          "type" : "string",
+          "maxLength" : 25,
+          "description" : "Mã merchant thanh toán",
+          "example" : "VHTEST9"
+        },
+        "agencyType" : {
+          "type" : "string",
+          "maxLength" : 5,
+          "description" : "Lấy theo chuyên thu",
+          "example" : "a"
+        },
+        "account" : {
+          "type" : "string",
+          "maxLength" : 30,
+          "description" : "Số tài khoản",
+          "example" : "114000121964"
+        },
+        "fromDate" : {
+          "type" : "string",
+          "maxLength" : 20,
+          "description" : "Từ ngày",
+          "example" : "07/09/2021"
+        },
+        "toDate" : {
+          "type" : "string",
+          "maxLength" : 20,
+          "description" : "Đến ngày",
+          "example" : "17/09/2021"
+        },
+        "fromTime" : {
+          "type" : "string",
+          "maxLength" : 20,
+          "description" : "Từ giờ",
+          "example" : "00:00:00"
+        },
+        "toTime" : {
+          "type" : "string",
+          "maxLength" : 20,
+          "description" : "Đến giờ",
+          "example" : "23:59:59"
+        },
+        "accountType" : {
+          "type" : "string",
+          "maxLength" : 1,
+          "description" : "Loại tài khoản vấn tin",
+          "example" : "D"
+        },
+        "collectionType" : {
+          "type" : "string",
+          "maxLength" : 2,
+          "description" : "Loại truy vấn (d ghi nợ, c ghi có)",
+          "example" : "d"
+        },
+        "transTime" : {
+          "type" : "string",
+          "maxLength" : 14,
+          "description" : "Thời gian gửi yêu cầu",
+          "example" : "20210915050101"
+        },
+        "clientIP" : {
+          "type" : "string",
+          "maxLength" : 16,
+          "description" : "IP client đối tác",
+          "example" : "10.10.2.201"
+        },
+        "channel" : {
+          "type" : "string",
+          "maxLength" : 15,
+          "description" : "Kênh thực hiện giao dịch",
+          "example" : "ERP"
+        },
+        "version" : {
+          "type" : "string",
+          "maxLength" : 5,
+          "description" : "Version của API",
+          "example" : "1"
+        },
+        "language" : {
+          "type" : "string",
+          "maxLength" : 3,
+          "description" : "Ngôn ngữ dùng",
+          "example" : "vi"
+        },
+        "signature" : {
+          "type" : "string",
+          "maxLength" : 2000,
+          "description" : "Chữ ký số",
+          "example" : "signedHashStringHere"
+        }
+      }
+    },
+    "ResponseInq" : {
+      "type" : "object",
+      "properties" : {
+        "requestId" : {
+          "type" : "string",
+          "maxLength" : 30,
+          "description" : "Số giao dịch gửi lô do đối tác gửi sang",
+          "example" : "343q433410001"
+        },
+        "providerId" : {
+          "type" : "string",
+          "maxLength" : 25,
+          "description" : "Mã nhà cung cấp dịch vụ",
+          "example" : "khaianh"
+        },
+        "merchantId" : {
+          "type" : "string",
+          "maxLength" : 25,
+          "description" : "Mã merchant thanh toán",
+          "example" : "VHTEST9"
+        },
+        "status" : {
+          "type" : "object",
+          "properties" : {
+            "code" : {
+              "type" : "string",
+              "description" : "Mã trạng thái",
+              "example" : "1"
+            },
+            "message" : {
+              "type" : "string",
+              "description" : "Thông điệp trả về",
+              "example" : "Thanh cong"
+            }
+          }
+        },
+        "account" : {
+          "type" : "string",
+          "maxLength" : 30,
+          "description" : "Số tài khoản",
+          "example" : "114000121964"
+        },
+        "companyName" : {
+          "type" : "string",
+          "maxLength" : 100,
+          "description" : "Tên công ty",
+          "example" : "Customer Name"
+        },
+        "accountType" : {
+          "type" : "string",
+          "description" : "Loại tài khoản",
+          "example" : "D"
+        },
+        "curency" : {
+          "type" : "string",
+          "description" : "Mã tiền tệ",
+          "example" : "VND"
+        },
+        "accountBal" : {
+          "type" : "string",
+          "description" : "Số dư hiện tại",
+          "example" : "7135.00"
+        },
+        "availableBal" : {
+          "type" : "string",
+          "description" : "Số dư khả dụng",
+          "example" : "7135"
+        },
+        "openningBal" : {
+          "type" : "string",
+          "description" : "Số dư đầu kỳ",
+          "example" : "21816502"
+        },
+        "closingBal" : {
+          "type" : "string",
+          "description" : "Số dư cuối kỳ",
+          "example" : "14624492"
+        },
+        "fromDate" : {
+          "type" : "string",
+          "description" : "Từ ngày",
+          "example" : "07/09/2021"
+        },
+        "toDate" : {
+          "type" : "string",
+          "description" : "Đến ngày",
+          "example" : "17/09/2021"
+        },
+        "totalCredit" : {
+          "type" : "string",
+          "description" : "Số tiền ghi có",
+          "example" : "0"
+        },
+        "numberCreditTransaction" : {
+          "type" : "string",
+          "description" : "Số giao dịch ghi có",
+          "example" : "0"
+        },
+        "totalDebit" : {
+          "type" : "string",
+          "description" : "Số tiền ghi nợ",
+          "example" : "7192010.00"
+        },
+        "numberDebitTransaction" : {
+          "type" : "string",
+          "description" : "Số giao dịch ghi nợ",
+          "example" : "99"
+        },
+        "fromTime" : {
+          "type" : "string",
+          "description" : "Từ giờ",
+          "example" : null
+        },
+        "toTime" : {
+          "type" : "string",
+          "description" : "Đến giờ",
+          "example" : null
+        },
+        "transactions" : {
+          "type" : "array",
+          "items" : {
+            "type" : "object",
+            "properties" : {
+              "order" : {
+                "type" : "string",
+                "description" : "Số thứ tự",
+                "example" : "1"
+              },
+              "transactionDate" : {
+                "type" : "string",
+                "description" : "Ngày giao dịch",
+                "example" : "16-09-2021 06:00:29"
+              },
+              "transactionContent" : {
+                "type" : "string",
+                "description" : "Nội dung giao dịch",
+                "example" : "Vananh ERP in"
+              },
+              "mtId" : {
+                "type" : "string",
+                "description" : "Số MTID",
+                "example" : null
+              },
+              "debit" : {
+                "type" : "string",
+                "description" : "Số tiền ghi nợ",
+                "example" : "15000"
+              },
+              "credit" : {
+                "type" : "string",
+                "description" : "Số tiền ghi có",
+                "example" : null
+              },
+              "accountBal" : {
+                "type" : "string",
+                "description" : "Số dư tài khoản",
+                "example" : "14624492.00"
+              },
+              "transactionNumber" : {
+                "type" : "string",
+                "description" : "Số giao dịch",
+                "example" : "1lAfM-7TLoiNEt2"
+              },
+              "corresponsiveAccount" : {
+                "type" : "string",
+                "description" : "Tài khoản đối ứng",
+                "example" : "119002808456"
+              },
+              "corresponsiveAccountName" : {
+                "type" : "string",
+                "description" : "Tên tài khoản đối ứng",
+                "example" : "CT HOANG HA NGUYEN"
+              },
+              "agency" : {
+                "type" : "object",
+                "description" : "Thông tin đại lý",
+                "properties" : {
+                  "account" : {
+                    "type" : "string",
+                    "example" : "119002808456"
+                  },
+                  "branchCode" : {
+                    "type" : "string",
+                    "example" : "11111"
+                  },
+                  "name" : {
+                    "type" : "string",
+                    "example" : null
+                  },
+                  "productType" : {
+                    "type" : "string",
+                    "example" : null
+                  },
+                  "productName" : {
+                    "type" : "string",
+                    "example" : null
+                  }
+                }
+              },
+              "virtualAccount" : {
+                "type" : "string",
+                "description" : "Tài khoản ảo",
+                "example" : "119002808456"
+              },
+              "corresponsiveBankName" : {
+                "type" : "string",
+                "description" : "Tên ngân hàng đối ứng",
+                "example" : null
+              },
+              "corresponsiveBankId" : {
+                "type" : "string",
+                "description" : "Mã ngân hàng đối ứng",
+                "example" : "24898"
+              },
+              "serviceBranchId" : {
+                "type" : "string",
+                "description" : "Mã chi nhánh ngân hàng thực hiện",
+                "example" : "60098"
+              },
+              "serviceBankName" : {
+                "type" : "string",
+                "description" : "Tên ngân hàng thực hiện",
+                "example" : null
+              },
+              "channel" : {
+                "type" : "string",
+                "description" : "Kênh thực hiện giao dịch",
+                "example" : "77 - eFAST - Corporate Internet Banking"
+              }
+            }
+          }
+        },
+        "signature" : {
+          "type" : "string",
+          "maxLength" : 2000,
+          "description" : "Chữ ký số",
+          "example" : "secureSignatureExample"
+        }
+      }
+    }
+  },
+  "tags" : [ ],
+  "parameters" : {
+    "Authorization" : {
+      "name" : "Authorization",
+      "type" : "string",
+      "required" : false,
+      "in" : "header",
+      "description" : "This is authorization code for oauth2 solution"
+    }
+  }
+}

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { requireApiSession } from '@/lib/auth';
+import { crossOriginRefusal } from '@/lib/security';
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { exchangePublicToken, plaidConfigured } from '@/lib/connectors/plaid';
 import { saveIntegrationTokens, syncPlaid } from '@/lib/sync';
@@ -18,6 +19,9 @@ const Schema = z.object({ publicToken: z.string().min(10).max(500) });
  * they are entered inside Plaid own iframe (spec section 25).
  */
 export async function POST(request: Request) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

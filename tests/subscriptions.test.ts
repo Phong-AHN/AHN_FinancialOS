@@ -26,6 +26,7 @@ function txn(overrides: Partial<Transaction> = {}): Transaction {
     category: 'software',
     subcategory: null,
     is_internal_transfer: false,
+    project_id: null,
     is_recurring: false,
     is_subscription: false,
     source_system: 'plaid',

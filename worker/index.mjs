@@ -55,6 +55,7 @@ const state = {
     'digest:daily': { runs: 0, failures: 0, lastRun: null, lastStatus: null, lastError: null },
     'digest:weekly': { runs: 0, failures: 0, lastRun: null, lastStatus: null, lastError: null },
     'price-increases': { runs: 0, failures: 0, lastRun: null, lastStatus: null, lastError: null },
+    'exchange-rates': { runs: 0, failures: 0, lastRun: null, lastStatus: null, lastError: null },
   },
 };
 
@@ -215,6 +216,31 @@ setInterval(() => {
   void callEndpoint('price-increases', '/api/cron/price-increases');
 }, 60_000);
 
+/**
+ * Exchange rates, once a day, an hour BEFORE the digest.
+ *
+ * The order is the point. Every USD figure the digest reports is converted
+ * through this table, so refreshing after it would mean the morning summary is
+ * always quoting yesterday's rate. An hour is far more than the job needs and
+ * leaves room for a retry before anybody reads anything.
+ *
+ * Off the sync tick for a second reason beyond staleness: Vietcombank asks for
+ * no more than one request every five minutes, and the sync runs more often
+ * than that. A feed that gets the company rate-limited is worse than one that
+ * runs once a day.
+ */
+let lastFxKey = null;
+
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() !== (DIGEST_HOUR + 23) % 24 || now.getMinutes() !== 0) return;
+
+  const dayKey = now.toISOString().slice(0, 10);
+  if (lastFxKey === dayKey) return;
+  lastFxKey = dayKey;
+  void callEndpoint('exchange-rates', '/api/cron/exchange-rates');
+}, 60_000);
+
 // ─── Health ─────────────────────────────────────────────────────────────────
 
 createServer((req, res) => {
@@ -247,6 +273,7 @@ createServer((req, res) => {
 }).listen(PORT, () => {
   log(
     `scheduler up — ${APP_URL}, sync every ${SYNC_INTERVAL_MINUTES}m, ` +
+      `rates at ${String((DIGEST_HOUR + 23) % 24).padStart(2, '0')}:00, ` +
       `digest at ${String(DIGEST_HOUR).padStart(2, '0')}:00 ${resolvedTimeZone()}, ` +
       `health on :${PORT}`,
   );

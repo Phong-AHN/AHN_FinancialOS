@@ -130,6 +130,62 @@ describe.skipIf(!ENABLED)('Row Level Security, as a real viewer', () => {
     expect(written ?? []).toHaveLength(0);
   });
 
+  it('lets a viewer read a project P&L but never write one', async () => {
+    // Spec §12 project figures are readable by everyone who can sign in — a
+    // viewer is meant to see whether the work made money. Creating a project,
+    // editing a contract value or deleting one are financial controls, and the
+    // API route's owner check is NOT what stops them: this goes straight at the
+    // database with the viewer's own token, the way a script would.
+    const { data: readable, error: readError } = await viewer
+      .from('projects')
+      .select('id,name,contracted_revenue_minor')
+      .limit(1);
+    expect(readError).toBeNull();
+
+    const insert = await viewer
+      .from('projects')
+      .insert({ name: `${marker}-should-not-exist`, kind: 'project' })
+      .select('id');
+    expect(insert.error, 'a viewer created a project').not.toBeNull();
+
+    if ((readable ?? []).length > 0) {
+      const id = (readable as Array<{ id: string }>)[0]!.id;
+      // A contract value drives every variance measured against it, so a viewer
+      // rewriting one would quietly change what the project appears to be worth.
+      const update = await viewer
+        .from('projects')
+        .update({ contracted_revenue_minor: 1 })
+        .eq('id', id)
+        .select('id');
+      expect(update.data ?? [], 'a viewer changed a contract value').toHaveLength(0);
+
+      const remove = await viewer.from('projects').delete().eq('id', id).select('id');
+      expect(remove.data ?? [], 'a viewer deleted a project').toHaveLength(0);
+    }
+
+    // Business units are admin-configurable per §15 — by the admin.
+    const unit = await viewer.from('business_units').insert({ name: `${marker}-unit` }).select('id');
+    expect(unit.error, 'a viewer created a business unit').not.toBeNull();
+  });
+
+  it('hides what people cost, and the hours that would reveal it', async () => {
+    // A rate IS compensation, so §23 restricts it the same way payroll rows are
+    // restricted. Hours matter for the same reason and one step removed: a
+    // viewer holding both a project's labour cost and its hours can divide one
+    // by the other and recover a salary the payroll policy exists to hide.
+    const people = await viewer.from('people').select('name,annual_cost_minor,hourly_cost_minor');
+    expect(people.data ?? [], 'a viewer read what people cost').toHaveLength(0);
+
+    const time = await viewer.from('time_entries').select('person_id,hours');
+    expect(time.data ?? [], 'a viewer read logged hours').toHaveLength(0);
+
+    const write = await viewer
+      .from('people')
+      .insert({ name: `${marker}-person`, basis: 'hourly', hourly_cost_minor: 1 })
+      .select('id');
+    expect(write.error, 'a viewer added a person').not.toBeNull();
+  });
+
   it('leaves the owner able to see what the viewer cannot', async () => {
     // Confirms the row exists at all — otherwise every check above would pass
     // for the wrong reason.

@@ -41,15 +41,26 @@ export interface DedupOptions {
   minScore?: number;
 }
 
-/** Lower rank = more authoritative, and therefore the row we keep. */
+/**
+ * Lower rank = more authoritative, and therefore the row we keep.
+ *
+ * `finverse` sits directly beside `plaid` because it is the same kind of thing:
+ * a bank feed read straight from the institution. It ranks ABOVE `csv_vn_bank`
+ * deliberately - when the same Vietnamese transaction arrives from both, the
+ * live feed is the one that has not been through a spreadsheet export, a
+ * column mapping and somebody's date format.
+ */
 const SOURCE_RANK: Record<SourceSystem, number> = {
   quickbooks: 0,
   plaid: 1,
-  stripe: 2,
-  csv_vn_bank: 3,
-  csv_veem: 4,
-  csv_payroll: 5,
-  manual: 6,
+  // The bank itself outranks an aggregator reading the same bank.
+  vietinbank: 2,
+  finverse: 3,
+  stripe: 4,
+  csv_vn_bank: 5,
+  csv_veem: 6,
+  csv_payroll: 7,
+  manual: 8,
 };
 
 type Candidate = Pick<

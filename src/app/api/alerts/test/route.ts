@@ -1,4 +1,5 @@
 import { requireApiSession } from '@/lib/auth';
+import { callerKey, crossOriginRefusal, rateLimitRefusal } from '@/lib/security';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { channelConfigured, deliver } from '@/lib/alerts/channels';
 import { formatThresholdAlert } from '@/lib/alerts/format';
@@ -17,7 +18,18 @@ export const dynamic = 'force-dynamic';
  * formatting, provider credentials - and it is obvious at a glance if the
  * numbers are wrong.
  */
-export async function POST() {
+export async function POST(request: Request) {
+  const crossOrigin = crossOriginRefusal(request);
+  if (crossOrigin) return crossOrigin;
+
+  // Delivers real messages to real Slack channels. The webhook identity cannot delete
+  // its own posts, so a loop here leaves mess a person has to clear by hand.
+  const tooMany = rateLimitRefusal(callerKey(request, 'alert-test'), {
+    limit: 6,
+    windowMs: 60000,
+  });
+  if (tooMany) return tooMany;
+
   const auth = await requireApiSession({ ownerOnly: true });
   if ('response' in auth) return auth.response;
 

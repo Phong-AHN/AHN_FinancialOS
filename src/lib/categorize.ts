@@ -46,6 +46,30 @@ const RULES: Rule[] = [
     counterpartyType: 'internal',
   },
 
+  /**
+   * The same thing, said in Vietnamese.
+   *
+   * Funding the Vietnam entity from the US parent is the single largest inflow
+   * a VN subsidiary sees, and the statement says "NHAN TIEN TU CONG TY ME" -
+   * money received from the parent company. Nothing in the English rule above
+   * matches a word of that, so it fell through to the broad inflow default and
+   * was booked as REVENUE: 430,000,000 VND of it in the sample statement alone,
+   * inflating revenue, break-even and every margin that follows.
+   *
+   * Written without diacritics on purpose. Vietnamese bank exports are almost
+   * always upper-case ASCII - "CHUYEN TIEN NOI BO", not "chuyển tiền nội bộ" -
+   * and `normalizeName` strips accents anyway, so the accented spellings reduce
+   * to these.
+   */
+  {
+    id: 'internal-transfer-vn',
+    patterns:
+      /(cong ty me|noi bo|chuyen tien noi bo|chuyen khoan noi bo|tai khoan cua minh|nap tien vao tai khoan|chuyen von|gop von|cap von|hoan ung)/i,
+    category: 'transfer',
+    isInternalTransfer: true,
+    counterpartyType: 'internal',
+  },
+
   // ── Revenue (inflow only) ─────────────────────────────────────────────
   // Direction-scoped rules come FIRST. They can only ever match one
   // direction, so putting them ahead costs nothing and prevents the broad

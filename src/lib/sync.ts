@@ -12,18 +12,34 @@ import type { FinancialAccount, Integration, SyncResult } from '@/lib/types';
 import { addDays, today, type ISODate } from '@/lib/dates';
 import { ingestTransactions } from '@/lib/ingest';
 import { decryptSecret, encryptSecret } from '@/lib/crypto';
+import { parseAmountToMinor } from '@/lib/money';
 import {
   fetchQboAccounts,
+  fetchQboObligations,
   fetchQboTransactions,
   getAccessToken,
   qboConfigured,
 } from '@/lib/connectors/quickbooks';
+import { syncQboObligations } from '@/lib/obligations-sync';
 import {
   fetchAccounts as fetchPlaidAccounts,
   mapAccountType,
   plaidConfigured,
   syncTransactions as plaidSyncTransactions,
 } from '@/lib/connectors/plaid';
+import {
+  amountToMinor,
+  fetchAccounts as fetchFinverseAccounts,
+  fetchTransactions as fetchFinverseTransactions,
+  finverseConfigured,
+  mapFinverseAccountType,
+  normalizeTransactions as normalizeFinverseTransactions,
+} from '@/lib/connectors/finverse';
+import {
+  fetchStatement,
+  normalizeStatement,
+  vietinbankConfigProblems,
+} from '@/lib/connectors/vietinbank';
 import {
   fetchStripeBalance,
   fetchStripeTransactions,
@@ -208,6 +224,36 @@ export async function syncQuickBooks(
     result.skipped = ingest.duplicatesSkipped;
     if (ingest.errors.length) result.error = ingest.errors.join('; ');
 
+    /*
+     * Invoices and bills, in the same pass but not into the same table.
+     *
+     * A failure here must not undo the transaction sync that already
+     * succeeded. The cash figures are the ones the company runs on, and losing
+     * them because one invoice had a malformed due date would be the wrong
+     * trade. The error is reported; the rows already written stand.
+     */
+    try {
+      const owed = await fetchQboObligations({
+        accessToken,
+        realmId: integration.external_id,
+        since: sinceFor(integration, asOf),
+      });
+      const written = await syncQboObligations(db, owed);
+      result.obligations = {
+        inserted: written.inserted,
+        updated: written.updated,
+        settled: written.settled,
+        skipped: written.skipped,
+      };
+      if (written.errors.length) {
+        const note = `obligations: ${written.errors.slice(0, 3).join('; ')}`;
+        result.error = result.error ? `${result.error}; ${note}` : note;
+      }
+    } catch (err) {
+      const note = `obligations: ${err instanceof Error ? err.message : String(err)}`;
+      result.error = result.error ? `${result.error}; ${note}` : note;
+    }
+
     await markSynced(db, integration.id);
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
@@ -343,6 +389,208 @@ export async function syncStripe(
 
 // ─── All providers ──────────────────────────────────────────────────────────
 
+/**
+ * Finverse - the Vietnamese bank route (spec section 2).
+ *
+ * The access token stored on the integration is the LOGIN IDENTITY token: the
+ * one the Link flow produced when a person signed in at their bank. Finverse
+ * never hands over bank credentials, which is the whole reason to go through an
+ * aggregator rather than holding them ourselves.
+ */
+export async function syncFinverse(
+  db: SupabaseClient,
+  integration: Integration,
+  asOf: ISODate = today(),
+): Promise<SyncResult> {
+  const result: SyncResult = {
+    provider: 'finverse',
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    accounts_touched: 0,
+  };
+
+  try {
+    if (!finverseConfigured()) throw new Error('Finverse env vars are not set.');
+    if (!integration.access_token_enc) {
+      throw new Error('Finverse integration has no login-identity token. Re-run the Link flow.');
+    }
+
+    const loginToken = decryptSecret(integration.access_token_enc);
+    const companyId = await ensureDefaultCompany(db);
+
+    const accounts = await fetchFinverseAccounts(loginToken);
+    const accountMap = new Map<string, string>();
+    const currencyMap = new Map<string, string>();
+
+    for (const acc of accounts) {
+      // A closed account still has history worth keeping, but nothing new will
+      // arrive; an excluded one the person chose not to share.
+      if (acc.is_excluded) continue;
+
+      const currency = (acc.account_currency ?? acc.balance?.currency ?? 'VND').toUpperCase();
+      const mapped = mapFinverseAccountType(acc.account_type?.subtype);
+      const owed = mapped.type === 'credit_card' || mapped.type === 'loan';
+      const balanceMinor = amountToMinor(acc.balance, currency);
+
+      const row = await upsertAccount(db, companyId, {
+        external_account_id: acc.account_id,
+        name: acc.account_nickname ?? acc.account_name,
+        type: mapped.type,
+        currency,
+        source_system: 'finverse',
+        mask: acc.account_number_masked ?? null,
+        include_in_cash: mapped.countsAsCash && !acc.is_closed,
+        reported_balance_minor:
+          balanceMinor === null
+            ? null
+            : // What is OWED on a card or a loan comes back positive, exactly as
+              // it does from Plaid. Negated so it reads as the liability it is
+              // rather than as money the company could spend.
+              owed
+              ? -Math.abs(balanceMinor)
+              : balanceMinor,
+      });
+
+      accountMap.set(acc.account_id, row.id);
+      currencyMap.set(acc.account_id, currency);
+    }
+    result.accounts_touched = accountMap.size;
+
+    const raw = await fetchFinverseTransactions(loginToken);
+    const normalized = normalizeFinverseTransactions(raw, { accountMap, currencyMap });
+
+    const ingest = await ingestTransactions(db, normalized.rows, { asOf });
+    result.inserted = ingest.inserted;
+    result.skipped = ingest.duplicatesSkipped + normalized.skippedPending;
+
+    // What was NOT taken, and why. A sync that silently drops rows is a sync
+    // that quietly disagrees with the bank.
+    const notes: string[] = [];
+    if (normalized.skippedPending) notes.push(`${normalized.skippedPending} pending`);
+    if (normalized.skippedUnknownAccount) {
+      notes.push(`${normalized.skippedUnknownAccount} from unmapped accounts`);
+    }
+    if (normalized.skippedNoAmount) notes.push(`${normalized.skippedNoAmount} with no readable amount`);
+    if (ingest.errors.length) notes.push(...ingest.errors);
+    if (notes.length) result.error = `skipped: ${notes.join(', ')}`;
+
+    await db
+      .from('integrations')
+      .update({ status: 'connected', last_synced_at: new Date().toISOString(), last_error: null })
+      .eq('id', integration.id);
+  } catch (err) {
+    result.error = err instanceof Error ? err.message : 'Finverse sync failed.';
+    await db
+      .from('integrations')
+      .update({ status: 'error', last_error: result.error })
+      .eq('id', integration.id);
+  }
+
+  return result;
+}
+
+/**
+ * VietinBank iConnect - the corporate Vietnamese route (spec section 2).
+ *
+ * One call returns a whole statement for one account and one date range, so
+ * there is no cursor to keep. The window is bounded instead: re-reading the
+ * last few weeks each run picks up anything the bank posted late, and
+ * `ingestTransactions` drops what it has already seen on
+ * (source_system, external_txn_id).
+ */
+export async function syncVietinBank(
+  db: SupabaseClient,
+  integration: Integration,
+  asOf: ISODate = today(),
+): Promise<SyncResult> {
+  const result: SyncResult = {
+    provider: 'vietinbank',
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    accounts_touched: 0,
+  };
+
+  try {
+    const problems = vietinbankConfigProblems();
+    if (problems.length) throw new Error(problems.join(' '));
+
+    const accountNumber = integration.external_id ?? process.env.VIETINBANK_ACCOUNT_NUMBER!;
+    const from = addDays(asOf, -VIETINBANK_WINDOW_DAYS);
+
+    const statement = await fetchStatement({ account: accountNumber, from, to: asOf });
+    const currency = (statement.curency ?? 'VND').toUpperCase();
+    const companyId = await ensureDefaultCompany(db);
+
+    // The statement carries the closing balance, which is what the reconcile
+    // page compares our transactions against.
+    const reported = statement.closingBal ?? statement.accountBal ?? null;
+    const reportedMinor =
+      reported === null ? null : (parseAmountToMinor(reported, currency) ?? null);
+
+    const account = await upsertAccount(db, companyId, {
+      external_account_id: accountNumber,
+      name: statement.companyName
+        ? `${statement.companyName} — ${accountNumber}`
+        : `VietinBank ${accountNumber}`,
+      type: 'checking',
+      currency,
+      source_system: 'vietinbank',
+      mask: accountNumber.slice(-4),
+      include_in_cash: true,
+      reported_balance_minor: reportedMinor,
+    });
+    result.accounts_touched = 1;
+
+    const normalized = normalizeStatement(statement, {
+      accountId: account.id,
+      currency,
+    });
+
+    const ingest = await ingestTransactions(db, normalized.rows, { asOf });
+    result.inserted = ingest.inserted;
+    result.skipped = ingest.duplicatesSkipped;
+
+    // What was NOT taken, and why. A sync that silently drops rows is a sync
+    // that quietly disagrees with the bank.
+    const notes: string[] = [];
+    if (normalized.skippedNoDate) notes.push(`${normalized.skippedNoDate} with an unreadable date`);
+    if (normalized.skippedNoAmount) {
+      notes.push(`${normalized.skippedNoAmount} with no readable amount`);
+    }
+    if (ingest.errors.length) notes.push(...ingest.errors);
+    if (notes.length) result.error = `skipped: ${notes.join(', ')}`;
+
+    await db
+      .from('integrations')
+      .update({
+        status: 'connected',
+        last_synced_at: new Date().toISOString(),
+        last_error: null,
+        external_id: accountNumber,
+      })
+      .eq('id', integration.id);
+  } catch (err) {
+    result.error = err instanceof Error ? err.message : 'VietinBank sync failed.';
+    await db
+      .from('integrations')
+      .update({ status: 'error', last_error: result.error })
+      .eq('id', integration.id);
+  }
+
+  return result;
+}
+
+/**
+ * How far back each run re-reads.
+ *
+ * Long enough that a bank posting a transaction several days late is still
+ * caught, short enough that a daily sync is not pulling a year of statement
+ * every time. Re-read rows cost nothing: they are dropped on the unique index.
+ */
+const VIETINBANK_WINDOW_DAYS = 35;
+
 export async function syncAllIntegrations(
   db: SupabaseClient,
   asOf: ISODate = today(),
@@ -365,6 +613,12 @@ export async function syncAllIntegrations(
         break;
       case 'stripe':
         results.push(await syncStripe(db, integration, asOf));
+        break;
+      case 'finverse':
+        results.push(await syncFinverse(db, integration, asOf));
+        break;
+      case 'vietinbank':
+        results.push(await syncVietinBank(db, integration, asOf));
         break;
     }
   }

@@ -20,6 +20,8 @@ import type {
 } from '@/lib/types';
 import {
   computeBurnRate,
+  countsTowardPnl,
+  usdMinorOf,
   computeSnapshot,
   countsTowardCash,
   type FinancialSnapshot,
@@ -386,6 +388,14 @@ export interface ProjectPortfolio {
   unassigned: Transaction[];
   units: BusinessUnit[];
   rates: UsdRateMap;
+  /**
+   * What each project's logged hours cost.
+   *
+   * NULL when the reader may not see compensation — which is different from an
+   * empty map, and both are different from zero. Null means "not counted";
+   * an entry of 0 means "counted, and nobody logged time".
+   */
+  labourByProject: Map<string, number> | null;
 }
 
 /**
@@ -398,6 +408,14 @@ export interface ProjectPortfolio {
 export async function loadProjectPortfolio(
   db: SupabaseClient,
   asOf: ISODate = today(),
+  opts: {
+    /**
+     * Whether this reader may see what people cost. Defaults to false, so a
+     * caller that forgets gets "not counted" instead of a labour figure of
+     * zero — the mistake decision 90 was about.
+     */
+    canSeeCompensation?: boolean;
+  } = {},
 ): Promise<ProjectPortfolio> {
   const [projectsRes, txnRes, unitsRes, rates] = await Promise.all([
     db.from('projects').select(PROJECT_SELECT).order('created_at', { ascending: false }),
@@ -416,12 +434,39 @@ export async function loadProjectPortfolio(
 
   const { rows, unassigned } = groupByProject(projects, transactions as Transaction[], rates);
 
+  /*
+   * Labour per project, for the roll-up.
+   *
+   * Only fetched when the reader may see compensation. `people` and
+   * `time_entries` would both come back as empty lists otherwise — HTTP 200,
+   * no error — and every project would silently be charged nothing for the
+   * people on it.
+   */
+  let labourByProject: Map<string, number> | null = null;
+  if (opts.canSeeCompensation === true) {
+    const [timeRes, peopleRes] = await Promise.all([
+      db.from('time_entries').select('*').limit(20_000),
+      db.from('people').select('*'),
+    ]);
+    const entries = (timeRes.data ?? []) as TimeEntry[];
+    const people = (peopleRes.data ?? []) as Person[];
+    labourByProject = new Map();
+    for (const { project } of rows) {
+      const forProject = entries.filter((e) => e.project_id === project.id);
+      labourByProject.set(
+        project.id,
+        computeProjectLabour(forProject, people, project).actualCostUsdMinor,
+      );
+    }
+  }
+
   return {
     rows,
     totals: portfolioTotals(rows, unassigned),
     unassigned,
     units: (unitsRes.data ?? []) as BusinessUnit[],
     rates,
+    labourByProject,
   };
 }
 
@@ -564,14 +609,37 @@ export async function loadSimulatorBaseline(
     loadUsdRates(db, asOf),
   ]);
 
-  const burn = computeBurnRate(
-    (txnRes.data ?? []) as Transaction[],
-    asOf,
-    SIMULATOR_MONTHS,
-    rates,
-  );
+  const transactions = (txnRes.data ?? []) as Transaction[];
 
-  const baseline = computeBaseline(burn.perMonth);
+  const burn = computeBurnRate(transactions, asOf, SIMULATOR_MONTHS, rates);
+
+  /*
+   * Average monthly cost of delivery, for spec section 11's GROSS margin mode.
+   *
+   * Only the months the burn actually sampled, so the two averages describe
+   * the same window — a gross margin computed over a longer period than the
+   * net one would quietly compare different things.
+   *
+   * Null, not zero, when nothing carries the category. Zero would mean
+   * "delivery is free", and a gross target measured against it asks for no
+   * revenue at all.
+   */
+  const sampledMonths = new Set(burn.perMonth.map((m) => m.month.slice(0, 7)));
+  const deliveryRows = transactions.filter(
+    (t) =>
+      t.direction === 'outflow' &&
+      countsTowardPnl(t) &&
+      t.category === 'cost_of_delivery' &&
+      sampledMonths.has(t.txn_date.slice(0, 7)),
+  );
+  const deliveryCostUsdMinor =
+    deliveryRows.length === 0 || burn.perMonth.length === 0
+      ? null
+      : Math.round(
+          deliveryRows.reduce((sum, t) => sum + usdMinorOf(t, rates), 0) / burn.perMonth.length,
+        );
+
+  const baseline = computeBaseline(burn.perMonth, deliveryCostUsdMinor);
   return { baseline, scenarios: buildScenarios(baseline), asOf };
 }
 

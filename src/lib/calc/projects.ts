@@ -278,6 +278,17 @@ export interface RollupGroup {
   grossMarginRatio: number | null;
   projectCount: number;
   lossMakingCount: number;
+
+  /**
+   * Labour charged to this group from logged hours.
+   *
+   * NULL, not zero, when the reader may not see compensation or when no
+   * lookup was supplied. Zero would say "these people cost nothing", which is
+   * the confident zero decision 90 was about; null says "not counted here".
+   */
+  labourUsdMinor: number | null;
+  /** Gross profit less labour. Null whenever `labourUsdMinor` is. */
+  profitAfterLabourUsdMinor: number | null;
 }
 
 interface RollupSource {
@@ -305,6 +316,13 @@ interface RollupSource {
 export function rollUpBy<P extends { id: string } & RollupSource>(
   rows: Array<ProjectSummaryRow<P>>,
   dimension: RollupDimension,
+  /**
+   * What each project's logged hours cost, if the reader may know.
+   *
+   * Optional so that every existing caller keeps its exact behaviour and gets
+   * `labourUsdMinor: null` — "not counted" rather than "counted as nothing".
+   */
+  labourFor?: (projectId: string) => number,
 ): RollupGroup[] {
   const groups = new Map<string, RollupGroup>();
 
@@ -321,12 +339,15 @@ export function rollUpBy<P extends { id: string } & RollupSource>(
         grossMarginRatio: null,
         projectCount: 0,
         lossMakingCount: 0,
+        labourUsdMinor: labourFor ? 0 : null,
+        profitAfterLabourUsdMinor: null,
       };
 
     group.cashReceivedUsdMinor += pnl.cashReceivedUsdMinor;
     group.directExpenseUsdMinor += pnl.directExpenseUsdMinor;
     group.grossProfitUsdMinor += pnl.grossProfitUsdMinor;
     group.projectCount += 1;
+    if (labourFor) group.labourUsdMinor = (group.labourUsdMinor ?? 0) + labourFor(project.id);
     if (pnl.transactionCount > 0 && pnl.grossProfitUsdMinor < 0) group.lossMakingCount += 1;
 
     groups.set(key, group);
@@ -337,6 +358,8 @@ export function rollUpBy<P extends { id: string } & RollupSource>(
       group.cashReceivedUsdMinor > 0
         ? group.grossProfitUsdMinor / group.cashReceivedUsdMinor
         : null;
+    group.profitAfterLabourUsdMinor =
+      group.labourUsdMinor === null ? null : group.grossProfitUsdMinor - group.labourUsdMinor;
   }
 
   return [...groups.values()].sort((a, b) => b.cashReceivedUsdMinor - a.cashReceivedUsdMinor);

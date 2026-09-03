@@ -50,17 +50,29 @@ export default async function ProjectsPage({
 }) {
   const dimension = pickDimension(searchParams.by);
   const supabase = createSupabaseServerClient();
-  const [session, { rows, totals, unassigned, units }] = await Promise.all([
-    requireSession(),
-    loadProjectPortfolio(supabase),
-  ]);
+  const session = await requireSession();
   const canEdit = sessionCan(session, 'move_money');
+  // Labour is compensation. Asked for explicitly rather than inferred from an
+  // empty result — see decision 90.
+  const { rows, totals, unassigned, units, labourByProject } = await loadProjectPortfolio(
+    supabase,
+    undefined,
+    { canSeeCompensation: sessionCan(session, 'see_compensation') },
+  );
 
   const active = rows.filter((r) => r.project.status === 'active' || r.project.status === 'planned');
   const withActivity = [...rows].sort(
     (a, b) => b.pnl.cashReceivedUsdMinor - a.pnl.cashReceivedUsdMinor,
   );
-  const groups = rollUpBy(rows, dimension);
+  const groups = rollUpBy(
+    rows,
+    dimension,
+    labourByProject ? (id) => labourByProject.get(id) ?? 0 : undefined,
+  );
+  const showLabour = labourByProject !== null;
+  const totalLabour = showLabour
+    ? groups.reduce((sum, g) => sum + (g.labourUsdMinor ?? 0), 0)
+    : null;
   const unassignedOutflow = unassigned
     .filter((t) => t.direction === 'outflow' && !t.is_internal_transfer)
     .reduce((s, t) => s + (t.amount_usd_minor ?? 0), 0);
@@ -241,15 +253,32 @@ export default async function ProjectsPage({
               ))}
             </div>
 
-            <Rollup groups={groups} totals={totals} />
+            <Rollup groups={groups} totals={totals} showLabour={showLabour} />
           </section>
 
           <div className="mt-7">
             <Callout tone="neutral" title="What is missing from every margin here">
-              Employee time and the software a project consumes are both real costs and neither
-              is counted. Spec §13 wants time logged against projects; until it is, a project
-              staffed by three people for a month looks exactly as profitable as one nobody
-              touched. Treat these as gross figures with a known gap, not as net profit.
+              {showLabour ? (
+                <>
+                  Logged time is now counted — the <strong>After labour</strong> column above is
+                  gross profit less what the hours cost
+                  {totalLabour !== null && totalLabour === 0
+                    ? ', and it currently equals gross profit because nobody has logged any hours yet'
+                    : ''}
+                  . Software a project consumes is still not: allocating it needs a basis
+                  (headcount? hours? an explicit tag?) that is AHN&rsquo;s decision to make, and a
+                  guess would flatter or punish projects arbitrarily. The{' '}
+                  <strong>Gross profit</strong> column deliberately still excludes labour so it
+                  keeps meaning the same thing it did last month.
+                </>
+              ) : (
+                <>
+                  Employee time and the software a project consumes are both real costs, and your
+                  role does not include seeing what people cost — so the labour columns are absent
+                  rather than shown as zero. Treat these as gross figures with a known gap, not as
+                  net profit.
+                </>
+              )}
             </Callout>
           </div>
         </>
@@ -271,9 +300,16 @@ export default async function ProjectsPage({
 function Rollup({
   groups,
   totals,
+  showLabour,
 }: {
   groups: RollupGroup[];
   totals: { cashReceivedUsdMinor: number; grossProfitUsdMinor: number };
+  /**
+   * False for a reader who may not see compensation. The columns are removed
+   * rather than dashed out: a column of em-dashes invites the reader to assume
+   * the number is zero, which is exactly what it is not.
+   */
+  showLabour: boolean;
 }) {
   if (groups.length === 0) {
     return (
@@ -308,6 +344,8 @@ function Rollup({
               <Th className="text-right">Received</Th>
               <Th className="text-right">Direct cost</Th>
               <Th className="text-right">Gross profit</Th>
+              {showLabour && <Th className="text-right">Labour</Th>}
+              {showLabour && <Th className="text-right">After labour</Th>}
               <Th className="text-right">Margin</Th>
               <Th className="text-right">Projects</Th>
             </tr>
@@ -339,6 +377,22 @@ function Rollup({
                 >
                   {formatMoney(g.grossProfitUsdMinor)}
                 </Td>
+                {showLabour && (
+                  <Td className="tabular muted text-right">
+                    {formatMoney(g.labourUsdMinor ?? 0)}
+                  </Td>
+                )}
+                {showLabour && (
+                  <Td
+                    className="tabular text-right font-medium"
+                    style={{
+                      color:
+                        (g.profitAfterLabourUsdMinor ?? 0) < 0 ? 'var(--outflow)' : undefined,
+                    }}
+                  >
+                    {formatMoney(g.profitAfterLabourUsdMinor ?? 0)}
+                  </Td>
+                )}
                 <Td className="tabular muted text-right">
                   {/* A dash, not 0%. A group that has received nothing has no
                       margin at all, and 0% reads as breaking even. */}
@@ -359,6 +413,18 @@ function Rollup({
               <Td className="tabular text-right font-medium">{formatMoney(summed)}</Td>
               <Td />
               <Td className="tabular text-right font-medium">{formatMoney(profitSummed)}</Td>
+              {showLabour && (
+                <Td className="tabular text-right font-medium">
+                  {formatMoney(groups.reduce((sum, g) => sum + (g.labourUsdMinor ?? 0), 0))}
+                </Td>
+              )}
+              {showLabour && (
+                <Td className="tabular text-right font-medium">
+                  {formatMoney(
+                    groups.reduce((sum, g) => sum + (g.profitAfterLabourUsdMinor ?? 0), 0),
+                  )}
+                </Td>
+              )}
               <Td colSpan={2} className="faint text-right text-[11px]">
                 {reconciles ? 'matches the portfolio total above' : 'does NOT match'}
               </Td>

@@ -27,6 +27,14 @@ const CreateSchema = z.object({
   issuedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   dueOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   isRecurring: z.boolean().default(false),
+  /**
+   * How often it repeats. Spec section 18's examples are almost all recurring,
+   * and `isRecurring` alone says a thing repeats without saying when — which
+   * is not enough to generate anything. Absent means nothing is generated,
+   * rather than a monthly rhythm being invented on the entry's behalf.
+   */
+  recurrence: z.enum(['monthly', 'quarterly', 'annual']).nullable().optional(),
+  recursUntil: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   notes: z.string().trim().max(500).nullable().optional(),
 });
 
@@ -81,7 +89,9 @@ export async function POST(request: Request) {
       currency: input.currency,
       issued_on: input.issuedOn ?? null,
       due_on: input.dueOn,
-      is_recurring: input.isRecurring,
+      is_recurring: input.isRecurring || input.recurrence != null,
+      recurrence: input.recurrence ?? null,
+      recurs_until: input.recursUntil ?? null,
       notes: input.notes ?? null,
       status: 'open',
     })

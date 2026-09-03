@@ -2502,6 +2502,181 @@ The grep for other guards of the same shape found exactly one, this one.
 
 ---
 
+## 91. Labour in the roll-up, and a project you can correct
+
+Two backlog items, taken together because they sit on the same critical path:
+AHN is about to enter project data for the first time, and both the reading and
+the writing of it were incomplete.
+
+### Labour reaches the §16 roll-up
+
+`computeProjectLabour` had been wired into the project *detail* page since Phase
+2, but `loadProjectPortfolio` never loaded a time entry — so the projects list
+and the roll-up built in decision 87 both showed a business unit's margin with
+its largest cost missing. Now that hours can actually be logged (decision 88),
+that gap was the difference between a roll-up and a roll-up worth reading.
+
+**Gross profit deliberately still excludes labour.** The new figures are two
+extra columns — `Labour` and `After labour` — not a redefinition. A margin
+somebody quoted last month must not change value because a new cost started
+being tracked, and a test asserts gross profit is identical with and without a
+labour lookup.
+
+**`rollUpBy` takes the lookup as an optional argument**, so every existing
+caller keeps its exact behaviour and gets `labourUsdMinor: null`. Null is the
+point: **"not counted" and "counted as nothing" are different claims**, and the
+type makes the distinction impossible to lose. `ProjectPortfolio.labourByProject`
+is likewise `Map | null` — null for a reader who may not see compensation, an
+empty map for one who may and finds no hours.
+
+**For a reader without compensation access the columns are removed, not
+dashed.** A column of em-dashes invites the assumption that the number is zero,
+which is exactly what it is not; the callout underneath says the role does not
+include seeing what people cost. Verified live: a viewer's roll-up has no labour
+column and still reconciles to the portfolio total.
+
+**Software allocation stays absent, and the page now says why.** It is the one
+remaining 🟡, and it is not an engineering gap: allocating a subscription across
+projects needs a basis — headcount, hours, an explicit tag — and any of them
+would flatter or punish projects arbitrarily. That is AHN's decision, so the
+caveat states it rather than inventing one.
+
+### Editing a project
+
+Projects were create-and-attribute only. A typo in a name, a project that
+finished, a contract value that arrived a week later — each needed the SQL
+console, on the one table AHN is about to fill in by hand. **Data entry that
+cannot be corrected is data entry nobody starts.**
+
+`PATCH /api/projects/[id]` runs on the caller's own session, so
+`p_projects_write` and migration 0025's unit scoping are the boundary. Every
+field that moves is audited: a contract value moves the unbilled total, a status
+moves a project in and out of the active roll-up.
+
+**`business_unit_id` is deliberately not editable.** Moving a project between
+units silently restates two units' historical margins — and because 0025 scopes
+write access *by unit*, a department lead could otherwise move a project into
+their own unit and then edit it. That is a transfer, not a correction, and it
+belongs to whoever can see the whole picture.
+
+**Blank means null, never zero.** Spec §12 wants contracted and invoiced
+revenue; neither exists in a bank feed, and "nobody has told us" is a different
+claim from "nothing was contracted". The inputs say `not known` rather than `0`.
+
+Verified live: an owner renamed a project, closed it and set a $50,000 contract
+in one call — three audit rows, the money one rendered as `$50,000.00`. An end
+date before the start date was refused. A viewer got 403 and the other project
+was untouched. Every probe row removed afterwards.
+
+---
+
+## 92. Commitments that come round again
+
+Spec §18 is about knowing what leaves the bank before it does, and almost every
+example it gives is recurring: payroll, VEEM payments, legal retainers,
+accounting fees, taxes, software renewals. `is_recurring` recorded that a
+commitment repeated and nothing ever acted on it, so "cash after commitments"
+only ever saw the rows somebody had typed. Next month's payroll was invisible
+until the day it was entered — which is the opposite of what §18 asks for.
+
+**A cadence, not a boolean.** "It recurs" says a thing repeats without saying
+when, which is not enough to generate anything. `recurrence` is
+monthly/quarterly/annual; existing rows keep their old flag and get a null
+cadence, meaning "recurring, cadence unknown". Nothing is generated for them,
+because inventing a monthly rhythm on their behalf would put money in the
+forecast that nobody committed to.
+
+**The walk starts at the template's own date, not at today.** Rent due on the
+1st must keep landing on the 1st; counting forward from "now" would drift the
+day of the month every time the job ran, and a commitment that wanders the
+calendar cannot be reconciled against the payment that settles it. `addMonths`
+clamps a 31st to the last day of a shorter month, which is what a monthly
+commitment does in reality.
+
+**Ninety days, and no further.** That covers the quarter a CFO is actually
+looking at. Generating years ahead would fill the aging buckets with rows nobody
+has committed to and make "overdue" meaningless the first time a template's
+amount changed.
+
+**Idempotent twice over.** The missing-instance calculation only asks for dates
+that do not already exist, and a unique index on (generated_from_id, due_on)
+refuses a duplicate even if two runs overlap. A job that runs daily must not
+create thirty copies of March's rent.
+
+**The template's own due date counts as already generated.** Without that, the
+first run duplicates it: the walk starts at that date, and the template is not
+in `existing` because nothing generated it. The result would be two identical
+rows for this month's payroll — caught by reading the first live run rather than
+by a test.
+
+**A generated instance is never itself a template**, or each month's row would
+start generating its own children and the table would grow geometrically.
+
+**Generation runs before the alert sweep**, in the same daily job, so a newly
+created commitment is alerted on the same day rather than the next.
+
+Verified live: a monthly $18,500 payroll template dated 3 September produced
+3 October and 3 November on the first run, and `0 created, 1 alreadyThere` on
+the second. The obligations page moved from $1,602.67 to $38,602.67 owed out
+inside thirty days, and cash-after-commitments from $76,257.90 to $39,257.90 —
+which is the whole point of §18. Every probe row removed afterwards.
+
+### Two hours lost to a port
+
+Worth recording because it will happen again. Every page and API route appeared
+to 404 or redirect to `/sign-in`, through a clean rebuild and a deleted `.next`.
+Nothing was wrong: **port 3000 on this machine belongs to another of AHN's
+projects**, `AHN_MigrateToolSHOPLINE`, whose Next dev server was already bound —
+so `next start` failed with EADDRINUSE and every request was answered by that
+application instead.
+
+The tell was there and was misread: this app redirects an anonymous visitor to
+`/login`, and the responses were redirecting to `/sign-in`. A route that 404s is
+ambiguous; a redirect to a path this codebase does not contain is not.
+
+The lesson is the same one as decision 90 in a different costume: **an
+unexpected empty answer is not evidence about your own code until you have
+confirmed who answered.** Local verification now runs on port 3777, and the
+smoke script already took a base URL for exactly this reason.
+
+---
+
+## 93. Gross margin, which the taxonomy could already answer
+
+Spec §11 asks the simulator for "a desired **gross or net** profit margin". Only
+net was built, and the backlog explained why: a gross margin needs a
+cost-of-delivery classification the §7 taxonomy does not provide.
+
+That note was wrong. `cost_of_delivery` has been a category in the taxonomy
+since the categoriser was written — `/explain` has been reporting against it all
+along. The blocker was a stale sentence in a document, and it had been sitting
+there long enough to look like a fact.
+
+**Same equation, different divisor.** `requiredRevenueForMargin` was already
+generic: it takes an expense figure. Net divides into everything the company
+spends; gross only into what delivering the work costs. On the test figures a
+40% target asks for $1,333,333 of revenue on a net basis and $333,333 on a
+gross one — a four-fold difference, and quoting one when you meant the other is
+a planning error rather than a rounding one. So the basis is now chosen in the
+interface rather than assumed by the code.
+
+**Delivery cost is null when nothing carries the category, never zero.** Zero
+would mean delivering the work is free, and a gross target measured against it
+returns a required revenue of nothing at all — a confident, tiny, wrong number.
+The mode refuses instead and says what to do: categorise the direct costs, or
+use a net margin.
+
+**The two averages describe the same window.** Delivery cost is averaged over
+exactly the months the burn rate sampled. A gross margin computed over a longer
+period than the net one would quietly be comparing different things.
+
+**One stated assumption.** Delivery cost is grown at the same rate as total
+expense, because nothing in the ledger says whether it scales with revenue or
+with headcount. That is the assumption the net projection already makes, so the
+two modes stay comparable — and it is written down rather than buried.
+
+---
+
 ## What was NOT changed
 
 The plan's week-1 boundary held. Subscription intelligence (spec §8) has since been

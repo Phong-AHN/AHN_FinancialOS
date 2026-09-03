@@ -8,8 +8,8 @@ under way.** The one Phase 2 item still open is real API access for the VN banks
 VEEM — the connectors are written and tested; what is missing is AHN’s registration,
 not code.
 
-At a glance: 17 nav pages (19 routes) · 32 API routes · 30 migrations · 499 passing tests
-(53 gated behind env flags) · 90 recorded engineering decisions.
+At a glance: 17 nav pages (19 routes) · 33 API routes · 31 migrations · 518 passing tests
+(53 gated behind env flags) · 93 recorded engineering decisions.
 
 ---
 
@@ -103,6 +103,26 @@ At a glance: 17 nav pages (19 routes) · 32 API routes · 30 migrations · 499 p
       payloads.
 
 ## Phase 3
+
+- [x] **Gross *or* net margin targets (§11).** The simulator now asks which
+      basis a margin means — all operating spend, or cost of delivery only. The
+      same 40% target implies four times the revenue on one basis as the other.
+      Refuses rather than measuring against a delivery cost of zero.
+
+- [x] **Recurring commitments generate themselves (§18).** Payroll, retainers,
+      rent and taxes carry a cadence — monthly, quarterly or annual — and the
+      daily job fills ninety days ahead. Idempotent by calculation and by a
+      unique index, so a job that runs every day cannot create thirty copies of
+      March's rent. Next month's payroll is now visible before it is entered,
+      which is what §18 asks for.
+
+- [x] **Labour reaches the §16 roll-up, and projects can be corrected.** The
+      roll-up gains `Labour` and `After labour` columns — gross profit keeps its
+      old meaning, so a figure quoted last month does not change value. Absent
+      entirely, not zeroed, for a reader who may not see compensation. And
+      `PATCH /api/projects/[id]` makes a project editable after creation:
+      name, status, dates, contracted and invoiced revenue, budgets — every
+      change audited, the business unit deliberately fixed.
 
 - [x] **Linking a login to a person, from the app (§13).** The step self-service
       time tracking still needed a SQL console for. One login is one person,
@@ -245,4 +265,4 @@ Three habits did most of the work, and each caught bugs nothing else did:
    as a confident $0 that would flatter every one of them.
 
 The full reasoning, including the mistakes, is in
-[DECISIONS.md](DECISIONS.md) — 90 numbered entries.
+[DECISIONS.md](DECISIONS.md) — 93 numbered entries.

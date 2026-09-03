@@ -6,6 +6,7 @@ import {
   runPriceIncreaseAlerts,
 } from '@/lib/alerts/engine';
 import { today } from '@/lib/dates';
+import { generateRecurringObligations } from '@/lib/obligations-recurring';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -41,6 +42,15 @@ export async function GET(request: Request) {
   const db = createSupabaseAdminClient();
   const startedAt = Date.now();
   const asOf = today();
+
+  /*
+   * Recurring commitments are generated FIRST, before the alerts below read
+   * them. Spec section 18 wants what is coming to be visible before the money
+   * goes; generating after the sweep would mean next month's payroll appeared
+   * in the table but was not alerted on until the following day.
+   */
+  const recurring = await generateRecurringObligations(db, { asOf });
+
   const summary = await runPriceIncreaseAlerts(db, { asOf });
   // Budgets ride the same daily job: both are sweeps over derived state
   // rather than reactions to a single transaction, and both dedupe by event
@@ -54,6 +64,7 @@ export async function GET(request: Request) {
   return Response.json({
     ok: true,
     durationMs: Date.now() - startedAt,
+    recurring,
     sent: summary.notificationsSent + budgets.notificationsSent + owed.notificationsSent,
     failed: summary.notificationsFailed + budgets.notificationsFailed + owed.notificationsFailed,
     skipped:

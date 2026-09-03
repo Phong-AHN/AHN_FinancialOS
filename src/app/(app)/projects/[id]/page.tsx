@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireSession, sessionCan } from '@/lib/auth';
+import { ProjectEditor } from '@/components/ProjectEditor';
 import { loadProject } from '@/lib/data';
 import { formatMoney, formatPercent } from '@/lib/money';
 import { formatDayLabel } from '@/lib/dates';
@@ -65,6 +66,22 @@ export default async function ProjectDetailPage({ params }: { params: { id: stri
             Activity from {formatDayLabel(pnl.firstActivity)} to{' '}
             {formatDayLabel(pnl.lastActivity!)}
           </span>
+        )}
+        {sessionCan(session, 'manage_projects') && (
+          <ProjectEditor
+            projectId={project.id}
+            initial={{
+              name: project.name,
+              status: (project.status ?? 'active') as 'planned' | 'active' | 'completed' | 'cancelled',
+              service: project.service ?? null,
+              startsOn: project.starts_on ?? null,
+              endsOn: project.ends_on ?? null,
+              contractedRevenueMinor: project.contracted_revenue_minor ?? null,
+              invoicedRevenueMinor: project.invoiced_revenue_minor ?? null,
+              budgetExpenseMinor: project.budget_expense_minor ?? null,
+              estimatedHours: project.estimated_hours ?? null,
+            }}
+          />
         )}
       </div>
 

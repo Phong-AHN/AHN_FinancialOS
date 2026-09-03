@@ -260,6 +260,33 @@ describe('rollUpBy (spec §16)', () => {
     expect(events.lossMakingCount).toBe(1); // p2 only
   });
 
+  it('leaves labour null when no lookup is given, never zero', () => {
+    // "Not counted" and "counted as nothing" are different claims. A reader who
+    // may not see compensation must get the first — see decision 90.
+    const { rows } = groupByProject(projects, ledger);
+    for (const g of rollUpBy(rows, 'business_unit')) {
+      expect(g.labourUsdMinor, g.label).toBeNull();
+      expect(g.profitAfterLabourUsdMinor, g.label).toBeNull();
+    }
+  });
+
+  it('subtracts labour from gross profit when a lookup is given', () => {
+    const { rows } = groupByProject(projects, ledger);
+    for (const g of rollUpBy(rows, 'business_unit', () => 10_000)) {
+      expect(g.labourUsdMinor).toBe(10_000 * g.projectCount);
+      expect(g.profitAfterLabourUsdMinor).toBe(g.grossProfitUsdMinor - g.labourUsdMinor!);
+    }
+  });
+
+  it('leaves gross profit alone, so it keeps meaning what it meant', () => {
+    // The point of a separate column: a figure somebody quoted last month must
+    // not change value because a new cost started being tracked.
+    const { rows } = groupByProject(projects, ledger);
+    expect(rollUpBy(rows, 'business_unit', () => 50_000).map((g) => g.grossProfitUsdMinor)).toEqual(
+      rollUpBy(rows, 'business_unit').map((g) => g.grossProfitUsdMinor),
+    );
+  });
+
   it('keeps every group total adding back to the portfolio total', () => {
     const { rows, unassigned } = groupByProject(projects, ledger);
     const totals = portfolioTotals(rows, unassigned);

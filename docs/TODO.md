@@ -19,6 +19,13 @@ quality item and six optional ones.
 
 Legend: 🔴 blocks go-live · 🟡 degrades quality · ⚪ optional
 
+> **Verifying locally on this machine:** port 3000 and 3100 belong to
+> `AHN_MigrateToolSHOPLINE`, which is usually running. Start this app on another
+> port — `PORT=3777 npm run start` — and pass the base URL to the smoke script:
+> `npm run smoke -- <email> '<password>' http://localhost:3777`. Without that,
+> every request is answered by the other application and every page looks
+> broken. See decision 92.
+
 **Where the data stands right now** (3 Sep 2026): 135 transactions — 66 QuickBooks,
 49 Plaid, 20 Stripe — across 20 accounts, 9 of them counted as cash. All three
 connectors report `connected`. 26 transactions are still uncategorised, 0 are
@@ -174,8 +181,8 @@ reconciled on sight.
 
 | | Remaining engineering |
 |---|---|
-| 🟡 | **Software allocated to a project is still not counted** (§12). Only people and directly attributed spending are. |
-| ⚪ | **Editing a project** after creation — name, status, contracted values. Currently create-and-attribute only. |
+| 🟡 | **Software allocated to a project is still not counted** (§12). Employee labour now IS — see decision 91. Software is not an engineering gap: allocating a subscription across projects needs a basis (headcount? hours? an explicit tag?) and any choice flatters or punishes projects arbitrarily. **This one is a decision for you**, and the projects page states the gap rather than guessing. |
+| ⚪ | **Editing a project** after creation — done, see decision 91. Name, status, dates, contracted/invoiced revenue and budgets, all audited. The business unit is deliberately not editable: moving a project restates two units' history. |
 
 ---
 
@@ -221,7 +228,7 @@ the authority of history a quarter later.
 
 | | Remaining engineering |
 |---|---|
-| ⚪ | **Gross vs. net margin targets.** §11 asks for both; the simulator computes against total operating spend, which is the net figure. A gross margin needs a cost-of-delivery classification the §7 category taxonomy does not provide. |
+| ⚪ | **Gross vs. net margin targets** — done, see decision 93. The note that said the §7 taxonomy lacked a cost-of-delivery classification was simply wrong: it has had one all along. |
 | ⚪ | **Saved scenarios**, deliberately not built — see above. If AHN wants to compare plans over time it needs a decision about how a stored projection is labelled so nobody reads it as an actual. |
 
 ---
@@ -270,7 +277,7 @@ and the days between are not) and large commitments inside a fortnight.
 
 | | Remaining engineering |
 |---|---|
-| ⚪ | **Generating recurring obligations.** `is_recurring` is recorded but nothing creates next month's payroll commitment automatically yet. |
+| ⚪ | **Generating recurring obligations** — done, see decision 92. Set a cadence on a commitment and the daily job fills ninety days ahead. Rows created before this carry `is_recurring` with no cadence: they generate nothing until somebody sets one, deliberately. |
 
 ---
 

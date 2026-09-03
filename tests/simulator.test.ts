@@ -159,6 +159,42 @@ describe('projectGrowth', () => {
   });
 });
 
+describe('gross vs net margin (spec §11)', () => {
+  const months = [
+    { month: '2026-06-01', inflowUsdMinor: 1_000_000, outflowUsdMinor: 800_000 },
+    { month: '2026-07-01', inflowUsdMinor: 1_000_000, outflowUsdMinor: 800_000 },
+  ];
+
+  it('carries delivery cost as null when nothing is categorised, never zero', () => {
+    // Zero would mean "delivering the work is free", and a gross target
+    // measured against it asks for no revenue at all.
+    expect(computeBaseline(months).deliveryCostUsdMinor).toBeNull();
+  });
+
+  it('keeps the two bases separate', () => {
+    const baseline = computeBaseline(months, 200_000);
+    expect(baseline.expenseUsdMinor).toBe(800_000);
+    expect(baseline.deliveryCostUsdMinor).toBe(200_000);
+  });
+
+  it('asks for far less revenue at a gross target than a net one', () => {
+    // The point of offering both. A 40% margin on delivery cost alone is a
+    // different business question from 40% on everything the company spends,
+    // and quoting one when you meant the other is a planning error.
+    const baseline = computeBaseline(months, 200_000);
+    const net = requiredRevenueForMargin(0.4, baseline.expenseUsdMinor, baseline.revenueUsdMinor, 12);
+    const gross = requiredRevenueForMargin(
+      0.4,
+      baseline.deliveryCostUsdMinor!,
+      baseline.revenueUsdMinor,
+      12,
+    );
+    expect(net.requiredRevenueUsdMinor).toBe(Math.round(800_000 / 0.6));
+    expect(gross.requiredRevenueUsdMinor).toBe(Math.round(200_000 / 0.6));
+    expect(gross.requiredRevenueUsdMinor!).toBeLessThan(net.requiredRevenueUsdMinor!);
+  });
+});
+
 describe('requiredRevenueForMargin', () => {
   it('solves revenue = expense / (1 - margin)', () => {
     // A 20% margin on 800k of cost needs 1,000k of revenue, leaving 200k.

@@ -33,6 +33,22 @@ export interface Baseline {
   /** Trailing average monthly revenue over the complete months sampled. */
   revenueUsdMinor: number;
   expenseUsdMinor: number;
+
+  /**
+   * The part of that spend which is cost of delivery - Spec section 11.
+   *
+   * Section 11 asks for a "desired gross OR net profit margin". Net measures
+   * against everything the company spends; gross measures only against what it
+   * costs to deliver the work. They are different questions and they give very
+   * different revenue targets, so the basis has to be chosen rather than
+   * assumed.
+   *
+   * NULL when nothing in the window carries the `cost_of_delivery` category —
+   * which is not the same as zero. Zero would mean "delivery is free", and a
+   * gross-margin target computed against it returns a required revenue of
+   * nothing at all.
+   */
+  deliveryCostUsdMinor: number | null;
   monthsSampled: number;
   /** The most recent complete month, which every projection starts after. */
   lastMonth: ISODate | null;
@@ -57,13 +73,23 @@ export interface Baseline {
  * A partial current month would drag the average down for no reason other than
  * the calendar, and every target derived from it would be set too low.
  */
-export function computeBaseline(months: MonthlyActual[]): Baseline {
+export function computeBaseline(
+  months: MonthlyActual[],
+  /**
+   * Average monthly cost of delivery over the same window, if it is known.
+   * Passed in rather than derived here because `MonthlyActual` carries totals,
+   * not categories — and inventing a split from a total is exactly the kind of
+   * guess this file refuses elsewhere.
+   */
+  deliveryCostUsdMinor: number | null = null,
+): Baseline {
   const sorted = [...months].sort((a, b) => a.month.localeCompare(b.month));
 
   if (sorted.length === 0) {
     return {
       revenueUsdMinor: 0,
       expenseUsdMinor: 0,
+      deliveryCostUsdMinor: null,
       monthsSampled: 0,
       lastMonth: null,
       revenueVolatility: null,
@@ -88,6 +114,7 @@ export function computeBaseline(months: MonthlyActual[]): Baseline {
 
   return {
     revenueUsdMinor: Math.round(meanRevenue),
+    deliveryCostUsdMinor,
     expenseUsdMinor: Math.round(meanExpense),
     monthsSampled: sorted.length,
     lastMonth: sorted[sorted.length - 1]!.month,

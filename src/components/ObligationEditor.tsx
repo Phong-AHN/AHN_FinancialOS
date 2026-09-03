@@ -12,6 +12,8 @@ import { categoryLabel } from '@/lib/categorize';
  * person is never guessing which way round they are entering something: money
  * IN is an invoice somebody owes AHN, money OUT is a bill AHN owes.
  */
+type Cadence = 'monthly' | 'quarterly' | 'annual';
+
 export function ObligationEditor({
   categories,
   projects,
@@ -36,6 +38,7 @@ export function ObligationEditor({
   const [issuedOn, setIssuedOn] = useState('');
   const [dueOn, setDueOn] = useState(() => new Date().toISOString().slice(0, 10));
   const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrence, setRecurrence] = useState<Cadence | null>(null);
 
   const owed = direction === 'inflow';
 
@@ -63,6 +66,7 @@ export function ObligationEditor({
           issuedOn: issuedOn || null,
           dueOn,
           isRecurring,
+          recurrence,
         }),
       });
       const json = (await res.json()) as { ok?: boolean; error?: string };
@@ -203,17 +207,33 @@ export function ObligationEditor({
           </Field>
         )}
 
-        <Field label="Recurring" hint="Payroll, retainers, taxes">
-          <label className="flex items-center gap-2 text-[13px]">
-            <input
-              type="checkbox"
-              checked={isRecurring}
-              onChange={(e) => setIsRecurring(e.target.checked)}
-              className="accent-[var(--brand)]"
-              style={{ width: 15, height: 15 }}
-            />
-            <span className="muted">Happens every period</span>
-          </label>
+        <Field
+          label="Repeats"
+          hint={
+            recurrence
+              ? 'The next three months are created automatically'
+              : 'Payroll, retainers, rent, taxes'
+          }
+        >
+          {/*
+            A cadence, not a checkbox. "It recurs" says a thing repeats without
+            saying when, which is not enough to generate anything — and a
+            commitment nobody scheduled must not appear in the forecast.
+          */}
+          <select
+            value={recurrence ?? ''}
+            onChange={(e) => {
+              const next = e.target.value === '' ? null : (e.target.value as Cadence);
+              setRecurrence(next);
+              setIsRecurring(next !== null);
+            }}
+            className="mt-1 w-full"
+          >
+            <option value="">One off</option>
+            <option value="monthly">Every month</option>
+            <option value="quarterly">Every quarter</option>
+            <option value="annual">Every year</option>
+          </select>
         </Field>
       </div>
 

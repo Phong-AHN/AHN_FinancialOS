@@ -40,6 +40,14 @@ export function Simulator({
   const [expenseGrowth, setExpenseGrowth] = useState('5');
   const [months, setMonths] = useState(12);
   const [targetMargin, setTargetMargin] = useState('20');
+  /**
+   * Spec section 11 asks for a "desired gross OR net profit margin".
+   *
+   * Net measures against everything the company spends; gross only against
+   * what it costs to deliver the work. Same equation, very different answer —
+   * so the basis is chosen rather than assumed.
+   */
+  const [marginBasis, setMarginBasis] = useState<'net' | 'gross'>('net');
 
   const preset = scenarios.find((s) => s.name === scenarioName);
   const revenueGrowthRate =
@@ -55,13 +63,45 @@ export function Simulator({
     const finalExpense =
       projection.months[projection.months.length - 1]?.expenseForecastUsdMinor ??
       baseline.expenseUsdMinor;
+
+    if (marginBasis === 'gross') {
+      if (baseline.deliveryCostUsdMinor === null) {
+        // Refused rather than measured against zero. A gross target computed
+        // against a delivery cost of nothing asks for no revenue at all, and
+        // renders as a confident, tiny, wrong number.
+        return {
+          requiredRevenueUsdMinor: null,
+          upliftUsdMinor: null,
+          impliedMonthlyGrowth: null,
+          impossibleReason:
+            'Nothing in this window is categorised as cost of delivery, so there is no gross margin to measure. Categorise the direct costs of the work, or use a net margin.',
+        };
+      }
+      /*
+       * Delivery cost is grown at the same rate as everything else.
+       *
+       * It is an assumption and it is stated: nothing in the ledger says
+       * whether delivery scales with revenue or with headcount. Growing it at
+       * the expense rate is the same assumption the net projection already
+       * makes, so the two modes stay comparable.
+       */
+      const ratio =
+        baseline.expenseUsdMinor > 0 ? finalExpense / baseline.expenseUsdMinor : 1;
+      return requiredRevenueForMargin(
+        (Number(targetMargin) || 0) / 100,
+        Math.round(baseline.deliveryCostUsdMinor * ratio),
+        baseline.revenueUsdMinor,
+        months,
+      );
+    }
+
     return requiredRevenueForMargin(
       (Number(targetMargin) || 0) / 100,
       finalExpense,
       baseline.revenueUsdMinor,
       months,
     );
-  }, [projection, baseline, targetMargin, months]);
+  }, [projection, baseline, targetMargin, months, marginBasis]);
 
   const noHistory = baseline.monthsSampled === 0 || baseline.revenueUsdMinor === 0;
 
@@ -194,7 +234,21 @@ export function Simulator({
               </div>
             </>
           ) : (
-            <div className="mt-5 grid gap-4 sm:grid-cols-3">
+            <div className="mt-5 grid gap-4 sm:grid-cols-4">
+              <Field label="Margin measured against" suffix="">
+                {/* Section 11 asks for gross OR net. Net divides into every
+                    dollar the company spends; gross only into what delivering
+                    the work costs. The same target gives very different
+                    revenue depending on which is meant. */}
+                <select
+                  value={marginBasis}
+                  onChange={(e) => setMarginBasis(e.target.value as 'net' | 'gross')}
+                  className="w-full"
+                >
+                  <option value="net">Net — all operating spend</option>
+                  <option value="gross">Gross — cost of delivery only</option>
+                </select>
+              </Field>
               <Field label="Target profit margin" suffix="%">
                 <input
                   value={targetMargin}

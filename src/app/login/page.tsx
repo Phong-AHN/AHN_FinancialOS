@@ -42,6 +42,14 @@ export default async function LoginPage({
           Access is restricted to invited accounts. Payroll detail and integration credentials are
           hidden from the viewer role by database policy, not by the interface.
         </p>
+
+        {/* Public, and linked from the one page every visitor reaches. Plaid
+            requires a reachable privacy policy before Link may be deployed. */}
+        <p className="faint mt-3 text-center text-[11.5px]">
+          <a href="/privacy" className="underline underline-offset-2">
+            Privacy policy
+          </a>
+        </p>
       </div>
     </div>
   );

@@ -22,6 +22,13 @@ import {
 } from '@/lib/connectors/quickbooks';
 import { syncQboObligations } from '@/lib/obligations-sync';
 import {
+  fetchAccessToken,
+  fetchAllPayments,
+  normalizePayment,
+  splitByStatus,
+  veemConfigProblems,
+} from '@/lib/connectors/veem';
+import {
   fetchAccounts as fetchPlaidAccounts,
   mapAccountType,
   plaidConfigured,
@@ -591,6 +598,154 @@ export async function syncVietinBank(
  */
 const VIETINBANK_WINDOW_DAYS = 35;
 
+// ─── VEEM ───────────────────────────────────────────────────────────────────
+
+/**
+ * How far back each run re-reads. Same reasoning as VietinBank: a payment that
+ * completes late is still caught, and re-read rows cost nothing because
+ * `ingestTransactions` drops them on (source_system, external_txn_id).
+ */
+const VEEM_WINDOW_DAYS = 35;
+
+/**
+ * VEEM - Spec section 2 ("especially for Philippines payroll") and section 18.
+ *
+ * THE SPLIT IS THE POINT. Veem's report returns payments at every stage of
+ * their life, and only `Complete` has actually moved money. A payment Veem has
+ * accepted but not yet delivered is not cash — counting it as cash overstates
+ * what left the bank. It is also not nothing: it is exactly the "known
+ * commitment before money leaves the bank" that section 18 asks for. So
+ * completed payments become transactions and in-flight ones become
+ * obligations, the same division decision 85 made for QuickBooks.
+ *
+ * A payment that later completes is written to the ledger by this same job,
+ * and its obligation is settled — so it is never counted twice.
+ */
+export async function syncVeem(
+  db: SupabaseClient,
+  integration: Integration,
+  asOf: ISODate = today(),
+): Promise<SyncResult> {
+  const result: SyncResult = {
+    provider: 'veem',
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    accounts_touched: 0,
+  };
+
+  try {
+    const problems = veemConfigProblems();
+    if (problems.length > 0) throw new Error(problems.join(' '));
+
+    const accessToken = await fetchAccessToken();
+    const from = addDays(asOf, -VEEM_WINDOW_DAYS);
+
+    const payments = await fetchAllPayments({ accessToken, from, to: asOf });
+    const normalized = payments
+      .map((p) => normalizePayment(p, { ownAccountId: process.env.VEEM_ACCOUNT_ID ?? null }))
+      .filter((p): p is NonNullable<typeof p> => p !== null);
+
+    const { settled, inFlight, discarded } = splitByStatus(normalized);
+
+    const companyId = await ensureDefaultCompany(db);
+    const account = await upsertAccount(db, companyId, {
+      external_account_id: 'veem-main',
+      name: 'VEEM',
+      type: 'other',
+      currency: 'USD',
+      source_system: 'veem',
+    });
+    result.accounts_touched = 1;
+
+    // --- Money that has moved -------------------------------------------------
+    const rows = settled
+      .filter((p) => p.date !== null)
+      .map((p) => ({
+        account_id: account.id,
+        external_txn_id: p.externalId,
+        source_system: 'veem' as const,
+        txn_date: p.date!,
+        amount_minor: p.amountMinor,
+        currency: p.currency,
+        direction: p.direction,
+        description: p.description ?? `VEEM payment to ${p.counterpartyName}`,
+        counterparty_name: p.counterpartyName,
+      }));
+
+    const ingest = await ingestTransactions(db, rows, { asOf });
+    result.inserted = ingest.inserted;
+    result.skipped = ingest.duplicatesSkipped + discarded.length;
+    if (ingest.errors.length) result.error = ingest.errors.join('; ');
+
+    // --- Money on its way -----------------------------------------------------
+    let created = 0;
+    let settledNow = 0;
+    for (const p of inFlight) {
+      if (!p.date) continue;
+      const { error: upsertError } = await db.from('obligations').upsert(
+        {
+          direction: p.direction,
+          counterparty_name: p.counterpartyName,
+          description: p.description ?? `VEEM payment, ${p.status}`,
+          amount_minor: p.amountMinor,
+          currency: p.currency,
+          // Veem gives a creation time, not a promised delivery date. Using the
+          // creation date as the due date is honest about what is known: the
+          // money is committed from that moment, and aging from it never claims
+          // a deadline nobody set.
+          issued_on: p.date,
+          due_on: p.date,
+          status: 'open',
+          source_system: 'veem',
+          external_id: p.externalId,
+        },
+        { onConflict: 'source_system,external_id' },
+      );
+      if (upsertError) continue;
+      created += 1;
+    }
+
+    /*
+     * A payment that has completed must stop being a commitment.
+     *
+     * Without this it would sit open forever AND appear in the ledger — the
+     * same dollar counted twice, once as cash gone and once as cash about to
+     * go. `settled_on` is the day Veem completed it.
+     */
+    for (const p of settled) {
+      if (!p.date) continue;
+      const { error: closeError } = await db
+        .from('obligations')
+        .update({ status: 'settled', settled_on: p.date })
+        .eq('source_system', 'veem')
+        .eq('external_id', p.externalId)
+        .neq('status', 'settled');
+      if (!closeError) settledNow += 1;
+    }
+
+    result.obligations = {
+      inserted: created,
+      updated: 0,
+      settled: settledNow,
+      skipped: discarded.length,
+    };
+
+    await db
+      .from('integrations')
+      .update({ status: 'connected', last_synced_at: new Date().toISOString(), last_error: null })
+      .eq('id', integration.id);
+  } catch (err) {
+    result.error = err instanceof Error ? err.message : 'VEEM sync failed.';
+    await db
+      .from('integrations')
+      .update({ status: 'error', last_error: result.error })
+      .eq('id', integration.id);
+  }
+
+  return result;
+}
+
 export async function syncAllIntegrations(
   db: SupabaseClient,
   asOf: ISODate = today(),
@@ -619,6 +774,9 @@ export async function syncAllIntegrations(
         break;
       case 'vietinbank':
         results.push(await syncVietinBank(db, integration, asOf));
+        break;
+      case 'veem':
+        results.push(await syncVeem(db, integration, asOf));
         break;
     }
   }

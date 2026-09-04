@@ -287,7 +287,17 @@ export interface RollupGroup {
    * the confident zero decision 90 was about; null says "not counted here".
    */
   labourUsdMinor: number | null;
-  /** Gross profit less labour. Null whenever `labourUsdMinor` is. */
+
+  /**
+   * Shared software spread onto this group by share of logged hours.
+   *
+   * Null on the same terms as labour, and additionally when nobody has logged
+   * any hours at all — there is then no basis to spread by, and an equal split
+   * would charge a project nobody touched.
+   */
+  softwareUsdMinor: number | null;
+
+  /** Gross profit less labour and allocated software. Null whenever they are. */
   profitAfterLabourUsdMinor: number | null;
 }
 
@@ -323,6 +333,8 @@ export function rollUpBy<P extends { id: string } & RollupSource>(
    * `labourUsdMinor: null` — "not counted" rather than "counted as nothing".
    */
   labourFor?: (projectId: string) => number,
+  /** Shared software already apportioned per project - see `allocation.ts`. */
+  softwareFor?: (projectId: string) => number,
 ): RollupGroup[] {
   const groups = new Map<string, RollupGroup>();
 
@@ -340,6 +352,7 @@ export function rollUpBy<P extends { id: string } & RollupSource>(
         projectCount: 0,
         lossMakingCount: 0,
         labourUsdMinor: labourFor ? 0 : null,
+        softwareUsdMinor: softwareFor ? 0 : null,
         profitAfterLabourUsdMinor: null,
       };
 
@@ -348,6 +361,7 @@ export function rollUpBy<P extends { id: string } & RollupSource>(
     group.grossProfitUsdMinor += pnl.grossProfitUsdMinor;
     group.projectCount += 1;
     if (labourFor) group.labourUsdMinor = (group.labourUsdMinor ?? 0) + labourFor(project.id);
+    if (softwareFor) group.softwareUsdMinor = (group.softwareUsdMinor ?? 0) + softwareFor(project.id);
     if (pnl.transactionCount > 0 && pnl.grossProfitUsdMinor < 0) group.lossMakingCount += 1;
 
     groups.set(key, group);
@@ -358,8 +372,13 @@ export function rollUpBy<P extends { id: string } & RollupSource>(
       group.cashReceivedUsdMinor > 0
         ? group.grossProfitUsdMinor / group.cashReceivedUsdMinor
         : null;
+    // Both costs come off, and the figure is null unless labour is known —
+    // "after labour" with labour missing would be gross profit under another
+    // name.
     group.profitAfterLabourUsdMinor =
-      group.labourUsdMinor === null ? null : group.grossProfitUsdMinor - group.labourUsdMinor;
+      group.labourUsdMinor === null
+        ? null
+        : group.grossProfitUsdMinor - group.labourUsdMinor - (group.softwareUsdMinor ?? 0);
   }
 
   return [...groups.values()].sort((a, b) => b.cashReceivedUsdMinor - a.cashReceivedUsdMinor);

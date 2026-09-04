@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   projectGrowth,
   requiredRevenueForMargin,
@@ -10,7 +11,9 @@ import {
 } from '@/lib/calc/simulator';
 import { formatMoney, formatPercent } from '@/lib/money';
 import { formatMonthLabel } from '@/lib/dates';
-import { Badge, Callout, Card, FormulaNote, SectionHeader, StatTile } from '@/components/ui';
+import { Badge, Callout, Card, FormulaNote, SectionHeader, StatTile, buttonClass } from '@/components/ui';
+import { formatDateTime } from '@/lib/dates';
+import type { SavedScenario } from '@/lib/types';
 
 /**
  * The interactive half of spec §11.
@@ -24,10 +27,15 @@ export function Simulator({
   baseline,
   scenarios,
   scenariosReliable,
+  saved,
+  canSave,
 }: {
   baseline: Baseline;
   scenarios: Scenario[];
   scenariosReliable: boolean;
+  /** Plans somebody kept. Never mixed into an actual — see the page docstring. */
+  saved: SavedScenario[];
+  canSave: boolean;
 }) {
   const [mode, setMode] = useState<'growth' | 'margin'>('growth');
   // Start on the custom rate when the presets are not trustworthy. Landing on a
@@ -48,6 +56,56 @@ export function Simulator({
    * so the basis is chosen rather than assumed.
    */
   const [marginBasis, setMarginBasis] = useState<'net' | 'gross'>('net');
+
+  const router = useRouter();
+  const [saveName, setSaveName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  async function saveScenario() {
+    if (saveName.trim() === '') {
+      setSaveError('Give the plan a name — "Board case, September" beats "scenario 3".');
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch('/api/scenarios', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: saveName.trim(),
+          revenueGrowthRate,
+          expenseGrowthRate,
+          months,
+          targetMarginRatio: mode === 'margin' ? (Number(targetMargin) || 0) / 100 : null,
+          marginBasis: mode === 'margin' ? marginBasis : null,
+          // The baseline is frozen with the plan. Re-running it against a later
+          // baseline would silently change what somebody agreed to.
+          baselineRevenueUsdMinor: baseline.revenueUsdMinor,
+          baselineExpenseUsdMinor: baseline.expenseUsdMinor,
+          baselineMonthsSampled: baseline.monthsSampled,
+          baselineAsOf: baseline.lastMonth ?? new Date().toISOString().slice(0, 10),
+        }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string };
+      if (!json.ok) {
+        setSaveError(json.error ?? 'Could not save that.');
+        return;
+      }
+      setSaveName('');
+      router.refresh();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Could not save that.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeScenario(id: string) {
+    await fetch(`/api/scenarios?id=${id}`, { method: 'DELETE' });
+    router.refresh();
+  }
 
   const preset = scenarios.find((s) => s.name === scenarioName);
   const revenueGrowthRate =
@@ -382,6 +440,98 @@ export function Simulator({
           the table means anything.
         </Callout>
       </div>
+
+      {/* ── Saved plans (spec §11) ─────────────────────────────────────────
+          Labelled a plan everywhere, with the day it was made and the month its
+          baseline came from. Nothing here is ever added to an actual. */}
+      <section className="mt-7">
+        <SectionHeader
+          title="Saved plans"
+          subtitle="Projections somebody kept, never actuals. Each one remembers the baseline it was built on, so it still means what it meant the day it was agreed."
+        />
+
+        {canSave && (
+          <Card className="mb-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block flex-1" style={{ minWidth: 200 }}>
+                <span className="faint block text-[11px] font-semibold uppercase tracking-[0.05em]">
+                  Name this plan
+                </span>
+                <input
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  placeholder="Board case, September"
+                  className="mt-1 w-full"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={saveScenario}
+                disabled={saving}
+                className={buttonClass('primary')}
+              >
+                {saving ? 'Saving…' : 'Save the settings above'}
+              </button>
+            </div>
+            <p className="faint mt-2 text-[11px]">
+              The inputs are saved, not the figures — every number is recomputed when you open it,
+              so a saved plan can never disagree with a fresh one built the same way. The baseline
+              is frozen with it.
+            </p>
+            {saveError && (
+              <p className="mt-2 text-[12px]" style={{ color: 'var(--outflow)' }}>
+                {saveError}
+              </p>
+            )}
+          </Card>
+        )}
+
+        <Card padded={false}>
+          {saved.length === 0 ? (
+            <p className="muted p-4 text-[13px]">
+              No plans saved yet. Set a growth rate or a margin target above, then keep it.
+            </p>
+          ) : (
+            <ul className="divide-y divide-[var(--line)]">
+              {saved.map((plan) => (
+                <li key={plan.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
+                  <div className="min-w-0">
+                    <p className="text-[13px] font-medium">
+                      {plan.name} <Badge tone="neutral">plan</Badge>
+                    </p>
+                    <p className="muted mt-0.5 text-[12px]">
+                      {formatPercent(Number(plan.revenue_growth_rate), 0)} revenue growth,{' '}
+                      {formatPercent(Number(plan.expense_growth_rate), 0)} expense growth, over{' '}
+                      {plan.months} months
+                      {plan.target_margin_ratio !== null && (
+                        <>
+                          {' · '}
+                          {formatPercent(Number(plan.target_margin_ratio), 0)} {plan.margin_basis}{' '}
+                          margin
+                        </>
+                      )}
+                    </p>
+                    <p className="faint mt-0.5 text-[11px]">
+                      Saved {formatDateTime(plan.created_at)} · built on the baseline as at{' '}
+                      {formatMonthLabel(plan.baseline_as_of)}, when revenue averaged{' '}
+                      {formatMoney(plan.baseline_revenue_usd_minor)} a month
+                    </p>
+                  </div>
+                  {canSave && (
+                    <button
+                      type="button"
+                      onClick={() => removeScenario(plan.id)}
+                      className="faint text-[11px] underline underline-offset-2"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </section>
     </>
   );
 }

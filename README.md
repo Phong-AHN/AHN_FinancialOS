@@ -73,6 +73,7 @@ Integrations are optional to boot and can be added one at a time on
 | QuickBooks | `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI` | Production keys are issued immediately for an internal app |
 | Plaid | `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` | Development env connects up to 100 real accounts |
 | Stripe | `STRIPE_SECRET_KEY` | Read-only usage |
+| VEEM | `VEEM_CLIENT_ID`, `VEEM_CLIENT_SECRET` | Optional `VEEM_ACCOUNT_ID` tells payments in from payments out. No sandbox exists — see decision 94 |
 | Slack | `SLACK_BOT_TOKEN` + `SLACK_DEFAULT_CHANNEL`, or `SLACK_WEBHOOK_URL` | Optional per-severity routing via `SLACK_CHANNEL_CRITICAL` / `_WARNING` / `_DIGEST` |
 | Slack commands | `SLACK_SIGNING_SECRET` | For `/ahn cash`, `runway`, `burn`, `breakeven`, `spend`, `unusual`. Each asker's Slack id must be linked to a user row — workspace membership alone grants nothing |
 | Email | `RESEND_API_KEY`, `ALERT_EMAIL_FROM`, `ALERT_EMAIL_TO` | |
@@ -178,9 +179,26 @@ directly, so a page that throws while *rendering* those numbers passes all of th
 and `next build` misses it too because every page here is server-rendered on demand.
 Pass a base URL as a third argument to check a deployment.
 
-Two integration suites read the live database and skip themselves without Supabase
-credentials, so a fresh clone still runs green. One further suite delivers real Slack
-and email messages and is gated behind `ALERT_E2E=1`.
+Integration suites read the live database and skip themselves without Supabase
+credentials, so a fresh clone still runs green. The ones that reach a third party,
+write rows or deliver real messages are gated behind a flag as well:
+
+| Flag | What it proves |
+|---|---|
+| `RLS_TEST` | Row Level Security, with a real viewer's token |
+| `RBAC_TEST` | The seven roles, as Postgres enforces them |
+| `ACCESS_TEST` | Who may change a role — self-promotion, last owner, `auth_id` |
+| `TIME_TEST` | An employee logging their own hours, and nobody else's |
+| `SCHEMA_TEST` | The hand-written types against the live schema, both directions |
+| `ACCEPTANCE_TEST` | Plan §10 / spec §28's twelve criteria, against real data |
+| `BUDGET_KEY_TEST` | A budget's natural key matching itself |
+| `FX_FEED_TEST` | Vietcombank, live, and the rate actually stored |
+| `QBO_AR_TEST` | Receivables and payables read from the real QuickBooks company |
+| `ALERT_E2E`, `PRICE_ALERT_E2E` | Real Slack and email delivery |
+
+`ACCEPTANCE_TEST=1 npx vitest run tests/acceptance.integration.test.ts` is the one
+to run before a release: it prints the twelve criteria and says which hold on AHN's
+own data, which are built with nothing to show yet, and which fail.
 
 The tests cover what breaks quietly: float rounding, VN decimal separators,
 month-boundary arithmetic (`2026-01-31` minus one month is *not* March 3rd),

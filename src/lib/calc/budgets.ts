@@ -23,6 +23,12 @@ export type BudgetScope =
   | 'client'
   | 'project'
   | 'category'
+  /**
+   * Spec 19's own word. A department owns section 7 spend categories rather
+   * than carrying a tag on every transaction, so its spend is answerable from
+   * data that already exists. See migration 0035.
+   */
+  | 'department'
   | 'total';
 
 export type BudgetPeriod = 'month' | 'quarter' | 'year';
@@ -146,6 +152,13 @@ export interface ScopeContext {
   projectOf?: Map<string, string | null>;
   /** Project id -> its business unit and client. */
   projectMeta?: Map<string, { businessUnitId: string | null; clientId: string | null }>;
+  /**
+   * Department id → the section 7 categories it owns.
+   *
+   * Passed in rather than queried here so this file stays pure: the same
+   * inputs give the same answer on any machine.
+   */
+  departmentCategories?: Map<string, Set<string>>;
   /** Account id -> the company that owns it. */
   companyOfAccount?: Map<string, string | null>;
 }
@@ -170,6 +183,14 @@ export function matchesScope(
 
     case 'category':
       return (txn.category ?? 'uncategorized') === budget.scope_key;
+
+    case 'department': {
+      // A department owns a set of categories. Migration 0035 guarantees no
+      // category belongs to two, so no dollar is counted against two budgets.
+      const owned = context.departmentCategories?.get(budget.scope_id ?? '');
+      if (!owned) return false;
+      return owned.has(txn.category ?? 'uncategorized');
+    }
 
     case 'project':
       return (txn.project_id ?? context.projectOf?.get(txn.id) ?? null) === budget.scope_id;

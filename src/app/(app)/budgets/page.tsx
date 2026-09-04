@@ -6,6 +6,7 @@ import { formatMoney, formatPercent } from '@/lib/money';
 import { formatDayLabel } from '@/lib/dates';
 import { categoryLabel } from '@/lib/categorize';
 import { BudgetEditor } from '@/components/BudgetEditor';
+import { BudgetAmount } from '@/components/BudgetAmount';
 import type { BudgetStatus } from '@/lib/calc/budgets';
 import {
   Badge,
@@ -121,7 +122,7 @@ export default async function BudgetsPage() {
                 title="Open periods"
                 subtitle="Still running, so the projection still means something"
               />
-              <BudgetTable statuses={open} />
+              <BudgetTable statuses={open} canEdit={canEdit} />
             </section>
           )}
 
@@ -131,7 +132,10 @@ export default async function BudgetsPage() {
                 title="Closed periods"
                 subtitle="Finished — the actual is the final, and nothing is projected"
               />
-              <BudgetTable statuses={closed} />
+              {/* Read-only on purpose. A closed period's budget is history;
+                  changing it restates a variance somebody has already
+                  reported, and the row gives no sign that it moved. */}
+              <BudgetTable statuses={closed} canEdit={false} />
             </section>
           )}
         </>
@@ -140,7 +144,13 @@ export default async function BudgetsPage() {
   );
 }
 
-function BudgetTable({ statuses }: { statuses: BudgetStatus[] }) {
+function BudgetTable({
+  statuses,
+  canEdit,
+}: {
+  statuses: BudgetStatus[];
+  canEdit: boolean;
+}) {
   return (
     <Card padded={false} className="overflow-x-auto">
       <table className="w-full text-[13px]">
@@ -176,7 +186,23 @@ function BudgetTable({ statuses }: { statuses: BudgetStatus[] }) {
                     : `day ${s.progress.daysElapsed} of ${s.progress.daysTotal}`}
                 </p>
               </Td>
-              <Td className="tabular text-right">{formatMoney(s.budgetUsdMinor)}</Td>
+              <Td className="tabular text-right">
+                {/* The amount is editable in place. Everything else about a
+                    budget is its identity: a marketing budget for September
+                    that becomes a payroll budget for October is a different
+                    budget, not an edit. */}
+                <BudgetAmount
+                  budgetId={s.budget.id}
+                  name={s.budget.name}
+                  scope={s.budget.scope}
+                  scopeId={s.budget.scope_id}
+                  scopeKey={s.budget.scope_key}
+                  period={s.budget.period}
+                  startsOn={s.budget.starts_on}
+                  amountMinor={s.budgetUsdMinor}
+                  canEdit={canEdit}
+                />
+              </Td>
               <Td className="tabular text-right">
                 <Link
                   href={budgetDrilldown(s)}
@@ -237,6 +263,10 @@ function scopeLabel(s: BudgetStatus): string {
       return `Category: ${categoryLabel(s.budget.scope_key)}`;
     case 'business_unit':
       return 'Business unit';
+    case 'department':
+      // §19's own word. A department owns spend categories, so its actuals come
+      // from the taxonomy rather than from a second round of tagging.
+      return 'Department';
     case 'client':
       return 'Client';
     case 'project':

@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireSession, sessionCan } from '@/lib/auth';
 import { loadProjectPortfolio } from '@/lib/data';
 import { rollUpBy, type RollupDimension, type RollupGroup } from '@/lib/calc/projects';
+import type { AllocationResult } from '@/lib/calc/allocation';
 import { formatMoney, formatPercent } from '@/lib/money';
 import { formatDayLabel } from '@/lib/dates';
 import { NewProjectButton } from '@/components/NewProjectButton';
@@ -54,11 +55,10 @@ export default async function ProjectsPage({
   const canEdit = sessionCan(session, 'move_money');
   // Labour is compensation. Asked for explicitly rather than inferred from an
   // empty result — see decision 90.
-  const { rows, totals, unassigned, units, labourByProject } = await loadProjectPortfolio(
-    supabase,
-    undefined,
-    { canSeeCompensation: sessionCan(session, 'see_compensation') },
-  );
+  const { rows, totals, unassigned, units, labourByProject, softwareByProject, softwareAllocation } =
+    await loadProjectPortfolio(supabase, undefined, {
+      canSeeCompensation: sessionCan(session, 'see_compensation'),
+    });
 
   const active = rows.filter((r) => r.project.status === 'active' || r.project.status === 'planned');
   const withActivity = [...rows].sort(
@@ -68,6 +68,7 @@ export default async function ProjectsPage({
     rows,
     dimension,
     labourByProject ? (id) => labourByProject.get(id) ?? 0 : undefined,
+    softwareByProject ? (id) => softwareByProject.get(id) ?? 0 : undefined,
   );
   const showLabour = labourByProject !== null;
   const totalLabour = showLabour
@@ -253,7 +254,12 @@ export default async function ProjectsPage({
               ))}
             </div>
 
-            <Rollup groups={groups} totals={totals} showLabour={showLabour} />
+            <Rollup
+              groups={groups}
+              totals={totals}
+              showLabour={showLabour}
+              allocation={softwareAllocation}
+            />
           </section>
 
           <div className="mt-7">
@@ -265,11 +271,21 @@ export default async function ProjectsPage({
                   {totalLabour !== null && totalLabour === 0
                     ? ', and it currently equals gross profit because nobody has logged any hours yet'
                     : ''}
-                  . Software a project consumes is still not: allocating it needs a basis
-                  (headcount? hours? an explicit tag?) that is AHN&rsquo;s decision to make, and a
-                  guess would flatter or punish projects arbitrarily. The{' '}
-                  <strong>Gross profit</strong> column deliberately still excludes labour so it
-                  keeps meaning the same thing it did last month.
+. Shared software is spread across projects{' '}
+                  <strong>by share of logged hours</strong> — the only cost driver this system
+                  has data for, and the one that charges the projects people actually worked on.
+                  {softwareAllocation?.reason ? (
+                    <>
+                      {' '}
+                      It is <strong>not</strong> spread right now:{' '}
+                      {formatMoney(softwareAllocation.unallocatedUsdMinor)} of software sits unallocated
+                      because nobody has logged hours. An even split would charge a project
+                      nobody touched.
+                    </>
+                  ) : null}{' '}
+                  Software already attributed to a project directly is left alone — spreading it
+                  again would charge that project twice. The <strong>Gross profit</strong> column
+                  deliberately excludes both, so it keeps meaning what it meant last month.
                 </>
               ) : (
                 <>
@@ -310,6 +326,8 @@ function Rollup({
    * the number is zero, which is exactly what it is not.
    */
   showLabour: boolean;
+  /** The software pool and, when nothing could be spread, the reason. */
+  allocation: AllocationResult | null;
 }) {
   if (groups.length === 0) {
     return (
@@ -345,7 +363,8 @@ function Rollup({
               <Th className="text-right">Direct cost</Th>
               <Th className="text-right">Gross profit</Th>
               {showLabour && <Th className="text-right">Labour</Th>}
-              {showLabour && <Th className="text-right">After labour</Th>}
+              {showLabour && <Th className="text-right">Software</Th>}
+              {showLabour && <Th className="text-right">After both</Th>}
               <Th className="text-right">Margin</Th>
               <Th className="text-right">Projects</Th>
             </tr>
@@ -383,6 +402,13 @@ function Rollup({
                   </Td>
                 )}
                 {showLabour && (
+                  <Td className="tabular muted text-right">
+                    {/* A dash, not $0.00, when there was no basis to spread by.
+                        Zero would read as "this group uses no software". */}
+                    {g.softwareUsdMinor === null ? '—' : formatMoney(g.softwareUsdMinor)}
+                  </Td>
+                )}
+                {showLabour && (
                   <Td
                     className="tabular text-right font-medium"
                     style={{
@@ -416,6 +442,11 @@ function Rollup({
               {showLabour && (
                 <Td className="tabular text-right font-medium">
                   {formatMoney(groups.reduce((sum, g) => sum + (g.labourUsdMinor ?? 0), 0))}
+                </Td>
+              )}
+              {showLabour && (
+                <Td className="tabular text-right font-medium">
+                  {formatMoney(groups.reduce((sum, g) => sum + (g.softwareUsdMinor ?? 0), 0))}
                 </Td>
               )}
               {showLabour && (

@@ -2677,6 +2677,456 @@ two modes stay comparable — and it is written down rather than buried.
 
 ---
 
+## 94. VEEM, and the line between a payment and cash
+
+Spec §2 lists VEEM among the required integrations, "especially for Philippines
+payroll", and §18 names VEEM payments as a commitment to track before the money
+goes. Until now the only route in was a CSV somebody exported and uploaded,
+which made the ledger as current as the last time a person remembered.
+
+### What the API actually is, established by probing it
+
+The documentation and the reality disagree, and the difference matters:
+
+- **`https://api.veem.com` is the working host.** `/oauth/token` and
+  `/veem/v1.2/payments/report` both answer `401` with JSON there — which is
+  what an endpoint that exists and wants credentials looks like. Eight other
+  candidate paths answered `404` with the same JSON shape, so the two that
+  matter were identified by the difference rather than by assumption.
+- **`https://sandbox-api.veem.com`, which the docs name as the sandbox, answers
+  403 with an HTML sign-in page on every path** — including `/oauth/token`. It
+  is behind a session wall and does not serve API traffic.
+
+So there is no sandbox to prove this against. `VEEM_API_BASE` defaults to
+production because there is no safe host to fall back to, and a connector
+pointed at one that cannot answer would be worse than none. The token endpoint
+was exercised with deliberately wrong credentials and returned `401` — proving
+the host, path, method and Basic-auth scheme are all correct, and that only real
+credentials are missing. That is the same standard of proof decision 63 set for
+VietinBank.
+
+`fetchAccessToken` detects an HTML body and says *"the sandbox host serves a
+sign-in page, not the API"* rather than letting `JSON.parse` fail with
+"unexpected token <". The error a developer meets should name the cause.
+
+### The split that makes it correct
+
+Veem's report returns payments at every stage of life: Drafted, Sent,
+PendingAuth, Authorized, InProgress, Complete, Cancelled, Closed. **Only
+`Complete` has moved money.**
+
+A payment Veem has accepted but not delivered is not cash — counting it as cash
+overstates what left the bank and understates the balance. It is also not
+nothing: it is exactly the "known commitment before money leaves the bank" §18
+asks for. So completed payments become transactions and in-flight ones become
+obligations — the same division decision 85 made for QuickBooks invoices, now
+applied to a second source.
+
+When a payment later completes, the same job writes it to the ledger **and
+settles its obligation**. Without that second step the dollar would be counted
+twice: once as cash gone, once as cash about to go.
+
+Cancelled and Closed are neither, and are discarded rather than stored as
+zero-value rows.
+
+### Three smaller decisions
+
+**The amount is the side AHN is on.** For an outgoing payment that is
+`payer.payerAmount`; a Philippines payee receiving ₱82,000 is not what came out
+of AHN's USD balance, and recording the payee side would put pesos in a dollar
+ledger.
+
+**Direction defaults to outgoing, and says so.** `VEEM_ACCOUNT_ID` is what
+distinguishes a payment out from a payment in. Without it every row is treated
+as an outflow — correct for AHN's documented use and wrong the day somebody pays
+AHN through Veem. It is a stated assumption with a named remedy, not a guess
+dressed as a fact.
+
+**A missing counterparty name is visibly missing.** The documented report shape
+carries a country code and no name, though live payloads have carried business
+names and emails. The likeliest fields are tried in order and the last resort is
+`VEEM payment 8841203` — which reads as an absent name, where a blank or a dash
+would read as a counterparty nobody can look up.
+
+**VEEM outranks its own CSV in dedup**, and sits below QuickBooks: the API is
+the originator, but QuickBooks is the ledger of record when AHN has also booked
+the payment there. `csv_veem` stays as a source — a file exported last quarter
+is still a legitimate record of what happened, and relabelling its provenance
+would be a lie about where those rows came from.
+
+---
+
+## 95. A budget key that never matched itself
+
+The backlog said editing a budget in place was cosmetic: *"saving the same scope
+and period again replaces it, which works but is not obvious."*
+
+It did not work. Saving the same scope again created a **second budget**, and
+the live database was already carrying **six identical rows** from an older
+version of the RBAC test — one per run, accumulating silently since Phase 2.
+
+**`unique (scope, scope_id, scope_key, period, starts_on)` does not constrain a
+category budget.** `scope_id` is NULL for the two commonest kinds — a category
+budget and a company-wide one — and Postgres treats NULLs as **distinct** in a
+unique constraint. So those rows never conflicted with themselves, `on conflict`
+in the create route matched nothing, and the upsert quietly inserted.
+
+This is the third time this session that NULL-distinctness has decided a
+design, and the first time it did damage. In decisions 89 and 94 it was the
+behaviour I *wanted* — unlimited people with no login, unlimited manual rows
+with no external id, all coexisting under a plain unique index. Here the same
+rule silently disabled the constraint. The lesson is not "avoid nulls in unique
+keys"; it is that **a nullable column in a unique key changes what the key
+means, and the direction of that change has to be chosen deliberately.**
+
+**The damage was never "duplicates in a table".** `/budgets` sums what the
+company planned. A $7,500 marketing budget saved twice told AHN it had planned
+$15,000, and every variance, projection and overspend alert measured against
+that figure.
+
+`NULLS NOT DISTINCT` (Postgres 15+) makes the key mean what it always claimed
+to. The columns are unchanged, so the route's `on conflict` now finds the row
+instead of inserting beside it — and the create route becomes an edit, which is
+what this backlog item wanted in the first place. Six stale rows were removed
+first, or the constraint could not have been added.
+
+**The interface now says so.** The amount on `/budgets` is editable in place,
+with a delete beside it. Only the amount: the scope and period are the row's
+identity, and a marketing budget for September that becomes a payroll budget for
+October is a different budget, not an edit. A closed period is read-only —
+changing it restates a variance somebody has already reported, and the row gives
+no sign that it moved.
+
+**My own probe nearly hid this.** The first check was
+`before[0].id === after[0].id`, which passed — because the first row was
+unchanged while a duplicate sat behind it. The assertion that mattered was
+`after.length === 1`, and it was the row count printed beside it, not the
+green check, that showed the bug. The test now asserts one row, the same id,
+and the new amount, and a second case proves a plain insert is refused too —
+because any code path that inserts without `on conflict` would reopen the same
+hole.
+
+---
+
+## 96. The plan's own checklist, run against the data — and two things I had reported wrongly
+
+Plan §10 is an acceptance checklist mapping to spec §28's "the application is
+not complete unless…". Four of its twelve rows were still marked "⏳ Later" in
+the plan document; all four have since been built. Nobody had run the twelve
+against AHN's actual data.
+
+`tests/acceptance.integration.test.ts` now does, as twelve assertions plus a
+printed table. **10 hold, 2 are built with no data to prove them on, 0 fail.**
+
+**"Built" and "proven on AHN's data" are reported as different states**, because
+they call for opposite responses. Project profitability and labour costing both
+work — unit tests prove the arithmetic and a probe proved the rendering — but
+there are 0 projects and 0 hours logged, so the checklist says NO DATA rather
+than PASS or FAIL. A checklist that blurred those would either flatter the
+system or condemn it, and both would be wrong.
+
+### The test found two errors in my own earlier reporting
+
+**I told AHN every alert rule was off. All eleven are on.** The check I ran
+selected `is_active` and `rule_type`; the columns are `enabled` and `type`.
+PostgREST answered 400, my code did `(data ?? [])`, and eleven enabled rules
+rendered as "0 rules, all off". Reading `undefined` as `false` did the rest.
+
+The consequence was not cosmetic: **12 Slack messages have gone to AHN's
+workspace since 3 September** — 11 overdue-invoice alerts about QuickBooks
+*sandbox* receivables, which this project imported, and one about a commitment a
+probe created. I had told AHN to expect those only after re-enabling alerting.
+They were already firing. That is now a 🔴 row in the checklist rather than a
+🟡 note about the future.
+
+This is decision 90 for the third time in one week, and the pattern is now
+unmistakable: **a query error that renders as an empty result is the most
+expensive shape of bug in this system**, because every reading of it is
+plausible. The acceptance test's reads now go through a helper that throws on
+`error`, so a mistyped column can never again present itself as an empty table.
+
+**The checklist also reported "gross margin unavailable" — and that was the
+test's fault, not the product's.** It called `computeBaseline(burn.perMonth)`
+with one argument, so of course delivery cost was null; `loadSimulatorBaseline`
+passes it. The live data has $1,037 of cost-of-delivery across the sampled
+months. A checklist that exercises a different code path from the product is not
+a checklist, so criterion 7 now computes it exactly as the loader does and
+reports both margins: a 20% net target needs $13,247/mo, a 20% gross target
+$366/mo.
+
+---
+
+## 97. The fourth instance, and the systemic fix
+
+Decision 96 ended by naming the pattern: *a query error that renders as an empty
+result is the most expensive shape of bug in this system*. Rather than leave
+that as a moral, the codebase was searched for it. **55 reads used
+`(data ?? [])` with the error discarded — 30 of them in `data.ts`, which feeds
+every page.** If the transactions read fails, the dashboard renders `$0.00` of
+cash. Not an error, not a blank: a number, confidently.
+
+### A fourth instance was already live, in code from two days ago
+
+`currenciesInUse` queried `db.from('accounts')`. **The table is
+`financial_accounts`.** PostgREST answered 404, `(data ?? [])` made it an empty
+list, and the function returned `['VND']` on every call — so the daily
+exchange-rate feed has only ever priced the dong.
+
+Nothing looked wrong, and nothing would have, because VND is the only foreign
+currency AHN plans to hold. The failure was waiting for the first PHP or SGD
+account: its rate would never have been fetched, `missingRates` would have
+reported it, and every balance in it would have been valued at **zero** — the
+same class of error the module's own header warns about, pointing the other way.
+
+It is now `financial_accounts`, the read throws, and four unit tests name the
+table so a rename has to update them too.
+
+### What changed
+
+`src/lib/supabase/rows.ts` holds `rowsOrThrow`, and the eight money-critical
+reads in `data.ts` — accounts and transactions, whichever loader they sit in —
+now use it. A failure there produces a visible error instead of a page of
+zeroes.
+
+**Throwing is the right answer, and it is a deliberate trade.** A page that
+fails loudly sends somebody to look at it; a page that renders zero gets
+believed. For a system whose entire claim is "every dollar in, every dollar
+out", a wrong number is worse than a missing one.
+
+`loadUsdRates` was the subtle case. It already checked `error` — and responded
+by returning `{ USD: 1 }`, which asserts *"there are no exchange rates on
+file"*. That is a legitimate state, and silently valuing every dong at nothing
+is a legitimate response to it. It is not a legitimate response to a failed
+query. The two used to share a branch; they no longer do.
+
+### What was deliberately left alone
+
+The other 47 reads. Most feed a list that is honestly empty when nothing
+matches — counterparties, notifications, audit rows — where throwing would turn
+a quiet page into an outage for no gain. The rule applied was narrow and
+checkable: **if an empty result would be rendered as a financial figure, the
+read must not be able to fabricate one.**
+
+---
+
+## 98. Nothing from a test environment wakes anybody up
+
+Running the daily job to check the new wiring printed `"sent": 2`. Two more
+Slack messages, about QuickBooks *sandbox* invoices, on top of the twelve
+decision 96 found. They would have kept arriving — the sandbox company ships 31
+invoices, most already overdue, none of which will ever be paid, and the aging
+buckets guarantee a fresh one crosses a threshold every few days.
+
+Neither half of that was a bug. The overdue rule did exactly what it was built
+to do (decision 30), and importing the invoices was right (decision 85). What
+was missing is that **nothing in the alert path ever asked whether the money was
+real.**
+
+**A CEO paged about a fake invoice learns to ignore the channel, and the channel
+is the product.** Every earlier decision about alerting — dedupe by event key
+rather than a time cooldown, one alert per event carrying the highest severity,
+per-vendor anomaly thresholds instead of a flat $5,000 — was about protecting
+the reader's attention. This is the same concern arriving from a direction none
+of them covered.
+
+`sandboxSources()` reads what the connectors already know: `QBO_ENVIRONMENT`,
+`PLAID_ENV`, and — for Stripe, which has no environment setting — whether the
+secret key begins `sk_test_`. Transaction alerts and obligation alerts both skip
+rows from those sources. **The suppression disappears on its own** the day
+`QBO_ENVIRONMENT` becomes `production`: nothing to remember, nothing to switch
+back on.
+
+**Counted, not silently dropped.** `suppressedAsSandbox` sits beside
+`suppressedAsBackfill` in the dispatch summary, because "0 sent" and "0 sent, 25
+suppressed because QuickBooks is in sandbox" are different situations and only
+one of them means the alerting is broken.
+
+**Deliberately not a filter anywhere else.** The ledger keeps every sandbox row,
+every page still shows them, and `/integrations` already says in plain words
+that the figures are sandbox. Hiding them would be a worse lie than alerting on
+them. This decides only who gets woken up.
+
+**Two types had drifted from the schema**, and the compiler found them once the
+alert path needed the column: `ObligationRow` never gained `source_system`,
+`external_id`, `recurrence`, `recurs_until` or `generated_from_id` when
+migrations 0027 and 0031 added them, and the calc-layer `Obligation` had the
+same gap. A column the database has and TypeScript does not is a column no code
+can use — which is why the alert engine could not tell a sandbox invoice from a
+commitment somebody typed.
+
+Verified: the daily job went from `"sent": 2` to `"sent": 0`, and the delivered
+count held at 174.
+
+---
+
+## 99. Checking the types against the database that exists
+
+Decision 98 ended with two types that had drifted from the schema — `ObligationRow`
+missing five columns across two migrations, and the calc layer's `Obligation`
+with the same gap. Both were found by the compiler only because a feature
+happened to need one of the columns. Nothing was checking.
+
+`types.ts` opens by saying it is hand-written "rather than generated so the money
+invariants are documented where they are used". That is a good reason, and it
+has a cost somebody has to pay: **drift**, in two directions that fail
+differently.
+
+**A column the database has and TypeScript does not** is a column no code can
+use. It fails silently — as a feature nobody can build — and it is exactly how a
+QuickBooks sandbox invoice ended up indistinguishable from a real one.
+
+**A field TypeScript claims and the database does not have** is a runtime
+failure waiting for the first query that selects it. That is decision 96's bug
+in its egg: a 400 that `(data ?? [])` turns into an empty table, and eleven
+enabled alert rules reported as none.
+
+`tests/schema-drift.integration.test.ts` compares the two, using PostgREST's own
+OpenAPI description of the live schema and **parsing the real `types.ts` rather
+than restating its fields** — so the test cannot drift from the thing it checks.
+
+**It found one more on its first run.** `AppUser` never gained `slack_user_id`
+from migration 0026. `/access` and the slash-command route worked because they
+declared their own inline shapes; the canonical user type could not see the
+column that decides who may run a slash command at all.
+
+**Seven tables have no hand-written type, and that stays deliberate.** The calc
+layer defines its own minimal shapes — `Person` takes what the labour arithmetic
+needs, `BudgetRow` what the variance arithmetic needs. Comparing those against
+every column would report drift where there is only focus. They are listed by
+name, so "no type exists" remains a decision somebody made; a NEW untyped table
+fails the test rather than joining a list nobody reads.
+
+Twelve types now checked against 19 tables, every run.
+
+---
+
+## 100. The deployment guide had gone stale, and nothing was watching it
+
+`.env.example` was complete — every variable the app reads is in it. The page
+somebody actually follows when deploying was not.
+
+`docs/DEPLOYMENT.md` listed **seventeen** environment variables to set on Vercel.
+The app reads **forty-nine**. Missing from the list, among others:
+
+- **`STRIPE_SECRET_KEY`**, while Stripe is a live, syncing integration. A
+  deployment following that page would have had a silently broken Stripe sync
+  and no error anywhere to point at.
+- **`SLACK_SIGNING_SECRET`**, without which every slash command is refused —
+  correctly, and confusingly.
+- **`BUSINESS_TIME_ZONE`**, without which "today" reverts to UTC and the
+  dashboard names the wrong day for the first seven hours of every Vietnamese
+  day (decision 84).
+- Every VEEM, VietinBank and Finverse variable, and the whole email and SMS
+  block.
+
+**A missing environment variable is the quietest kind of production failure.**
+Nothing throws. A feature simply does not happen, and the page that should have
+told you to set it is the same page that convinced you the list was complete.
+
+The section is rewritten in four groups — required, integrations, alerting, and
+what is deliberately *not* needed on Vercel — with the consequence written next
+to the variable rather than left to be inferred. `SUPABASE_DB_URL` is named as
+local tooling only, so nobody wastes an afternoon wondering why the deployed app
+does not want a direct Postgres URL.
+
+**`tests/deploy-env.test.ts` walks `src/` for `process.env.X` and asserts each
+one appears in both files.** It is not gated behind a flag — it needs no
+database and no network, so it runs on every `npm test`, which is the only way a
+documentation check survives contact with a deadline.
+
+It carries a guard on itself: an assertion that the scan finds more than thirty
+variables. Without it, a regex that stopped matching would make every other
+assertion in the file pass vacuously — the same failure shape as a query error
+rendering as an empty table, which this codebase has now met four times.
+
+Two categories are excluded by name and for a reason: the Railway worker's
+variables, which have their own section in the same document, and `NODE_ENV`,
+which Node sets itself.
+
+---
+
+## 101. The last three backlog items, and the assumption each one needed
+
+Three items had sat unbuilt because each needed a decision rather than an
+algorithm. Asked to finish them, the right move was to make each decision
+explicitly and write down why — not to pick a default quietly.
+
+### Software allocated to a project (§12) — by share of logged hours
+
+A ClickUp subscription is not *for* any one project, so any number against a
+project is the result of a rule somebody chose. Four candidates:
+
+- **Hours** is a real cost driver, the standard one for professional services,
+  and the only basis backed by data this system holds. Chosen.
+- **Headcount** needs people assigned to projects; nothing records that.
+- **An equal split** is the tempting one and the worst: it charges a project
+  nobody touched the same as one that ran for a month, with a confident number.
+- **Revenue share** makes a profitable project look less profitable purely
+  because it earned more, inverting what the page exists to show.
+
+**When nobody has logged hours, nothing is allocated.** The pool is reported as
+unallocated with the reason attached, exactly as the page already reports labour
+it may not see.
+
+Two correctness details. **Largest-remainder distribution**, so an integer pool
+lands exactly: three projects splitting $100.00 get 3333/3333/3334, not three
+3333s that lose a cent nor three 3334s that invent two. And **software already
+attributed to a project is excluded from the pool** — it is a direct cost
+already in that project's P&L, and spreading it again would charge that project
+twice. The live probe demonstrated exactly this: of $579.33 seeded, $504.33 sat
+on projects and only the remaining $75.00 was spread, 10h:4h into $53.57 and
+$21.43.
+
+### Saved scenarios (§11) — inputs and baseline, never outputs
+
+The simulator's docstring had refused this for a long time, and the reason still
+holds: *a stored projection acquires the authority of a record, and a quarter
+later somebody reads last quarter's guess as history.* The concern now has an
+answer rather than a prohibition.
+
+**Only the inputs are stored.** Every figure is recomputed on read, so a saved
+plan can never disagree with a fresh one built from identical inputs — which is
+what storing outputs would guarantee the first time the engine improved.
+
+**The baseline is frozen with it.** A plan made in June compounded June's
+revenue; re-running it against today's would silently change what somebody
+agreed to. `baseline_as_of` is what turns a query into a record.
+
+**It is labelled a plan wherever it appears**, with the day it was made and the
+month its baseline came from. No page adds it to an actual, and the table has no
+status, no approval and no link to a transaction.
+
+### Department budgets (§19) — a department owns categories
+
+§19 names "department"; the closest level was `business_unit`, and for AHN those
+are revenue lines (Membership, Labs, Agency), not functions. A marketing budget
+had nowhere to live.
+
+**The obvious design is a `department_id` on every transaction, and it is the
+wrong one.** It would ask AHN to attribute every row a second time, on top of
+projects, before a single budget could be measured — and nothing has been
+attributed yet. The §7 taxonomy already classifies every transaction, so a
+department simply owns its categories and "Marketing spent $4,000 against
+$5,000" is answerable today.
+
+**One category, one department**, enforced by a trigger rather than left to the
+interface: two departments both claiming `software` would count the same dollar
+against both budgets and the company total would stop adding up. Proved at the
+database — the second claim is refused with a message naming the category.
+
+An uncategorised payment belongs to no department. With 26 of AHN's transactions
+still uncategorised, the alternative — falling into whichever department is
+checked first — would have been silent and wrong.
+
+### And the loop was closed this time
+
+Decision 89 named the pattern: shipping a capability that leaves a "run this
+UPDATE" task behind. Departments were briefly exactly that — a working scope
+with no way to create one. `/api/departments` and the budget editor's new scope
+option landed in the same change.
+
+---
+
 ## What was NOT changed
 
 The plan's week-1 boundary held. Subscription intelligence (spec §8) has since been

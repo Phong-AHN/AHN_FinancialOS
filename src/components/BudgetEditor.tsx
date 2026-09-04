@@ -11,14 +11,26 @@ interface Targets {
   clients: Array<{ id: string; name: string }>;
   projects: Array<{ id: string; name: string }>;
   categories: string[];
+  /** Spec §19's own level. A department owns spend categories — migration 0035. */
+  departments: Array<{ id: string; name: string }>;
 }
 
-type Scope = 'total' | 'category' | 'business_unit' | 'client' | 'project' | 'company';
+type Scope =
+  | 'total'
+  | 'category'
+  | 'department'
+  | 'business_unit'
+  | 'client'
+  | 'project'
+  | 'company';
 type Period = 'month' | 'quarter' | 'year';
 
 const SCOPE_LABELS: Record<Scope, string> = {
   total: 'Everything the company spends',
   category: 'A spending category',
+  // A department owns several categories, so its budget covers all of them at
+  // once - and migration 0035 stops two departments claiming the same one.
+  department: 'A department',
   business_unit: 'A business unit',
   client: 'A client',
   project: 'A project or event',
@@ -55,7 +67,9 @@ export function BudgetEditor({ targets }: { targets: Targets }) {
   }
 
   const options =
-    scope === 'business_unit'
+    scope === 'department'
+      ? targets.departments
+      : scope === 'business_unit'
       ? targets.businessUnits
       : scope === 'client'
         ? targets.clients

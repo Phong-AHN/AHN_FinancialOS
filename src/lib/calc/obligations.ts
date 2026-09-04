@@ -16,7 +16,7 @@
  * obligation and the page says so.
  */
 
-import type { Transaction, TxnDirection } from '@/lib/types';
+import type { Transaction, TxnDirection, SourceSystem } from '@/lib/types';
 import { countsTowardCash, usdMinorOf, IDENTITY_RATES, type UsdRateMap } from '@/lib/calc/engine';
 import { addDays, daysBetween, type ISODate } from '@/lib/dates';
 
@@ -40,6 +40,16 @@ export interface Obligation {
   settled_txn_id: string | null;
   settled_on: ISODate | null;
   is_recurring: boolean;
+
+  /**
+   * Where the row came from - migration 0027.
+   *
+   * Optional here because the aging arithmetic does not care, and every test
+   * fixture in this file predates the column. The alert engine does care: a
+   * QuickBooks *sandbox* invoice must not page anybody, and without this field
+   * it could not tell one from a commitment somebody typed.
+   */
+  source_system?: SourceSystem | null;
 }
 
 // ─── Aging (spec 17) ────────────────────────────────────────────────────────

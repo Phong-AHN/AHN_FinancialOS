@@ -13,6 +13,7 @@ import {
   vietinbankConfigured,
   vietinbankEnvironment,
 } from '@/lib/connectors/vietinbank';
+import { veemConfigProblems, veemConfigured } from '@/lib/connectors/veem';
 import { stripeConfigProblems, stripeConfigured, stripeMode } from '@/lib/connectors/stripe';
 import { formatDateTime, relativeTime } from '@/lib/dates';
 import { PlaidLinkButton } from '@/components/PlaidLinkButton';
@@ -24,7 +25,7 @@ import { Badge, Callout, Card, LinkButton, PageHeader, SectionHeader, buttonClas
 export const dynamic = 'force-dynamic';
 
 interface ProviderMeta {
-  key: 'quickbooks' | 'plaid' | 'stripe' | 'finverse' | 'vietinbank';
+  key: 'quickbooks' | 'plaid' | 'stripe' | 'finverse' | 'vietinbank' | 'veem';
   name: string;
   role: string;
   detail: string;
@@ -108,6 +109,7 @@ export default async function IntegrationsPage({
   const stripeProblems = stripeConfigProblems();
   const finverseProblems = finverseConfigProblems();
   const vtbProblems = vietinbankConfigProblems();
+  const veemProblems = veemConfigProblems();
 
   const providers: ProviderMeta[] = [
     {
@@ -129,6 +131,16 @@ export default async function IntegrationsPage({
       envReady: vietinbankConfigured() && vtbProblems.length === 0,
       hasCredentials: vietinbankConfigured(),
       problems: vtbProblems,
+    },
+    {
+      key: 'veem',
+      name: 'VEEM',
+      role: 'Philippines payroll and cross-border payments',
+      detail:
+        'Client-credentials OAuth against api.veem.com — no redirect flow, nothing to click. Only a payment VEEM reports as Complete is treated as cash; anything still in flight becomes a commitment on Owed & owing, because money VEEM has accepted has not yet left the bank. VEEM’s documented sandbox serves a sign-in page rather than an API, so the first real call is against production.',
+      envReady: veemConfigured() && veemProblems.length === 0,
+      hasCredentials: veemConfigured(),
+      problems: veemProblems,
     },
     {
       key: 'finverse',

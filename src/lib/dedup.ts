@@ -57,10 +57,14 @@ const SOURCE_RANK: Record<SourceSystem, number> = {
   vietinbank: 2,
   finverse: 3,
   stripe: 4,
-  csv_vn_bank: 5,
-  csv_veem: 6,
-  csv_payroll: 7,
-  manual: 8,
+  // VEEM is the originator of its own payments, so it outranks the CSV export
+  // of the same payments — and sits below QuickBooks, which is the ledger of
+  // record when AHN has also booked the payment there.
+  veem: 5,
+  csv_vn_bank: 6,
+  csv_veem: 7,
+  csv_payroll: 8,
+  manual: 9,
 };
 
 type Candidate = Pick<

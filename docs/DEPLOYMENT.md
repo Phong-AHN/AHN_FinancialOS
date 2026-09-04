@@ -113,24 +113,70 @@ quota or minimum interval is baked in.
 Set these in **Project Settings → Environment Variables**. `.env.local` is not
 uploaded — Vercel needs its own copy.
 
+This list is checked by `tests/deploy-env.test.ts`, which runs on every
+`npm test` — it needs no database. It exists because this page went stale once:
+`STRIPE_SECRET_KEY` was missing while Stripe was a live, syncing integration,
+and a deployment following it would have had a silently broken sync and no error
+to point at.
+
+### Required — the app will not work without these
+
 ```
 NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
-ENCRYPTION_KEY
-CRON_SECRET
-NEXT_PUBLIC_APP_URL        https://your-app.vercel.app   ← alert deep links use this
+ENCRYPTION_KEY             same value the tokens were encrypted with, or every
+                           stored OAuth token becomes unreadable
+CRON_SECRET                without it /api/cron/* refuses to run at all
+NEXT_PUBLIC_APP_URL        https://your-app.vercel.app  ← alert deep links use this
+BUSINESS_TIME_ZONE         Asia/Ho_Chi_Minh. Decides what "today" means; left
+                           unset the app falls back to UTC and names the wrong
+                           day for the first seven hours of every Vietnamese
+                           day (decision 84). Match the worker's TZ.
+```
+
+### Integrations — set the ones you actually use
+
+```
 QBO_CLIENT_ID / QBO_CLIENT_SECRET / QBO_ENVIRONMENT / QBO_REDIRECT_URI
 PLAID_CLIENT_ID / PLAID_SECRET / PLAID_ENV
+STRIPE_SECRET_KEY          an sk_test_ key is treated as sandbox and its rows
+                           never raise an alert (decision 98)
+VEEM_CLIENT_ID / VEEM_CLIENT_SECRET / VEEM_ACCOUNT_ID / VEEM_API_BASE
+VIETINBANK_CLIENT_ID / VIETINBANK_CLIENT_SECRET / VIETINBANK_ACCOUNT_NUMBER
+VIETINBANK_PROVIDER_ID / VIETINBANK_MERCHANT_ID / VIETINBANK_ENV
+VIETINBANK_API_BASE / VIETINBANK_ACCOUNT_TYPE / VIETINBANK_CHANNEL / VIETINBANK_MODEL
+FINVERSE_CLIENT_ID / FINVERSE_CLIENT_SECRET / FINVERSE_ENV / FINVERSE_REDIRECT_URI
+```
+
+`QBO_ENVIRONMENT` and `PLAID_ENV` are not cosmetic: while either says `sandbox`,
+that source's rows are excluded from alerting, so nobody is paged about test
+money. They start alerting the moment the value becomes `production`.
+
+### Alerting — each channel is optional and silently skipped when unset
+
+```
 SLACK_BOT_TOKEN
 SLACK_DEFAULT_CHANNEL      "#ahn-finance-alerts"   ← quote it, see below
 SLACK_CHANNEL_CRITICAL / SLACK_CHANNEL_WARNING / SLACK_CHANNEL_DIGEST
+SLACK_WEBHOOK_URL          legacy fallback; prefer the bot token
+SLACK_SIGNING_SECRET       required for /ahn slash commands. Without it the
+                           endpoint refuses every request rather than answering
+                           unauthenticated
+RESEND_API_KEY / ALERT_EMAIL_FROM / ALERT_EMAIL_TO
+TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER / ALERT_SMS_TO
 ```
 
 > **Quote every channel name.** An unquoted value starting with `#` is read as a
 > comment and arrives empty, which silently drops the app back to the incoming
 > webhook — one channel for everything, and messages the bot cannot delete. This
 > cost real debugging time once already (decision 35).
+
+### Not needed on Vercel
+
+`SUPABASE_DB_URL` is read only by `scripts/db-push.mjs` and the other local
+tooling. It is the direct Postgres connection string; the deployed app never
+uses it.
 
 `ENCRYPTION_KEY` must be **the same value** as the one the tokens were encrypted
 with, or every stored OAuth token becomes unreadable and the integrations have to

@@ -1,6 +1,6 @@
 # What is built
 
-Status as of 2 Sep 2026. The counterpart to [TODO.md](TODO.md), which lists
+Status as of 3 Sep 2026. For a one-page version see [CHECKLIST.md](CHECKLIST.md). The counterpart to [TODO.md](TODO.md), which lists
 what is *not* done and who it is waiting on.
 
 **Week 1 (Days 1–7) is complete. Every Phase 2 feature is built and Phase 3 is
@@ -8,8 +8,8 @@ under way.** The one Phase 2 item still open is real API access for the VN banks
 VEEM — the connectors are written and tested; what is missing is AHN’s registration,
 not code.
 
-At a glance: 17 nav pages (19 routes) · 33 API routes · 31 migrations · 518 passing tests
-(53 gated behind env flags) · 93 recorded engineering decisions.
+At a glance: 17 nav pages (19 routes) · 35 API routes · 35 migrations · 575 passing tests
+(72 gated behind env flags) · 101 recorded engineering decisions.
 
 ---
 
@@ -75,6 +75,14 @@ At a glance: 17 nav pages (19 routes) · 33 API routes · 31 migrations · 518 p
 
 ## Vietnam banking groundwork
 
+- [x] **VEEM connector (§2, §18).** Client-credentials OAuth against
+      `api.veem.com`, the host proved to answer. Only a payment VEEM reports as
+      **Complete** counts as cash; anything in flight becomes a commitment on
+      *Owed & owing* and is settled automatically when it completes, so no
+      dollar is counted twice. Replaces the CSV export as the live route —
+      `csv_veem` stays, because a file exported last quarter is still a real
+      record of what happened.
+
 - [x] **VN bank statement import proven end to end.** The template in
       `samples/` imports with every amount matching the statement to the dong,
       Vietnamese descriptions categorised (`CHUYEN LUONG` → payroll,
@@ -103,6 +111,50 @@ At a glance: 17 nav pages (19 routes) · 33 API routes · 31 migrations · 518 p
       payloads.
 
 ## Phase 3
+
+- [x] **The backlog is empty.** The last three items each needed a decision,
+      and each was made explicitly: software allocated **by share of logged
+      hours** (never an even split, and nothing at all when no hours exist);
+      saved scenarios storing **inputs and the baseline, never the figures**;
+      and department budgets where a **department owns §7 categories** rather
+      than demanding every transaction be tagged a second time.
+
+- [x] **The deployment guide is complete, and checked.** It listed 17 variables
+      where the app reads 49 — `STRIPE_SECRET_KEY` absent while Stripe was
+      syncing, `SLACK_SIGNING_SECRET` absent so slash commands would refuse.
+      Rewritten in four groups with the consequence beside each variable, and a
+      test that runs on every `npm test` keeps it honest.
+
+- [x] **The types are checked against the live schema.** Hand-written types
+      drift; two had, silently, across four migrations. A test now compares
+      twelve of them to PostgREST's own description of the database, in both
+      directions, parsing the real source rather than restating it. Found a
+      third: `AppUser` could not see `slack_user_id`.
+
+- [x] **Alerts never fire on money that is not real.** A sandbox integration's
+      rows are skipped by the transaction and obligation alert paths — counted,
+      not silently dropped — and the suppression lifts itself the day the
+      environment goes to production. Stops 31 fake QuickBooks invoices paging
+      the CEO.
+
+- [x] **Money-critical reads can no longer fabricate a zero.** A query error
+      used to render as an empty table and therefore as `$0.00`. Found a fourth
+      live instance while fixing it: the exchange-rate feed queried a table that
+      does not exist and had only ever priced VND. Eight reads now fail loudly;
+      the rule is narrow — if an empty result would be shown as a financial
+      figure, the read must not be able to invent one.
+
+- [x] **The plan's acceptance checklist runs against live data.** Plan §10 /
+      spec §28's twelve criteria, as executable assertions: **10 hold, 2 built
+      with no data, 0 fail.** "Built" and "proven on AHN's data" are reported
+      separately — they call for opposite responses.
+
+- [x] **Budgets are editable in place — and the key that was supposed to make
+      that possible was broken.** `scope_id` is NULL for a category budget, and
+      Postgres treats NULLs as distinct, so the unique key never matched itself:
+      every save created another budget and the live database held six
+      duplicates. `NULLS NOT DISTINCT` fixed it; the amount is now editable on
+      the row, with a closed period left read-only.
 
 - [x] **Gross *or* net margin targets (§11).** The simulator now asks which
       basis a margin means — all operating spend, or cost of delivery only. The
@@ -265,4 +317,4 @@ Three habits did most of the work, and each caught bugs nothing else did:
    as a confident $0 that would flatter every one of them.
 
 The full reasoning, including the mistakes, is in
-[DECISIONS.md](DECISIONS.md) — 93 numbered entries.
+[DECISIONS.md](DECISIONS.md) — 101 numbered entries.

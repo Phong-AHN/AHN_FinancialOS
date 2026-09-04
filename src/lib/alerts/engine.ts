@@ -47,6 +47,7 @@ import {
 } from '@/lib/alerts/format';
 import { channelConfigured, deliver } from '@/lib/alerts/channels';
 import { loadUsdRates } from '@/lib/fx';
+import { alertable, describeSandboxed, sandboxSources } from '@/lib/alerts/sandbox';
 import {
   agingBucket,
   type Obligation,
@@ -136,6 +137,14 @@ export interface DispatchSummary {
   transactionsAlerted: number;
   /** Historical rows marked as seen without alerting. */
   suppressedAsBackfill: number;
+  /**
+   * Rows from an integration pointed at a test environment.
+   *
+   * Counted rather than silently dropped: "0 sent" and "0 sent, 25
+   * suppressed because QuickBooks is in sandbox" are different situations,
+   * and only one of them means the alerting is broken.
+   */
+  suppressedAsSandbox: number;
   notificationsSent: number;
   notificationsFailed: number;
   notificationsSkipped: number;
@@ -145,6 +154,7 @@ export interface DispatchSummary {
 const emptySummary = (): DispatchSummary => ({
   transactionsAlerted: 0,
   suppressedAsBackfill: 0,
+  suppressedAsSandbox: 0,
   notificationsSent: 0,
   notificationsFailed: 0,
   notificationsSkipped: 0,
@@ -268,6 +278,20 @@ export async function runTransactionAlerts(
   }
   if (!pending?.length) return summary;
 
+  /*
+   * Nothing from a test environment wakes anybody up.
+   *
+   * The rows stay in the ledger and on every page; this decides only who gets
+   * a message. See `sandbox.ts` for why — twelve Slack alerts about QuickBooks
+   * sandbox invoices is how a CEO learns to ignore the channel.
+   */
+  const sandboxed = sandboxSources();
+  const alertablePending = (pending as TransactionWithContext[]).filter((t) =>
+    alertable(t, sandboxed),
+  );
+  summary.suppressedAsSandbox += pending.length - alertablePending.length;
+  if (alertablePending.length === 0) return summary;
+
   const [{ data: rules }, { data: accounts }, { data: allTxns }] = await Promise.all([
     db.from('alert_rules').select('*').eq('enabled', true),
     db.from('financial_accounts').select('*'),
@@ -297,7 +321,9 @@ export async function runTransactionAlerts(
     ? null
     : trailingDays(asOf, alertMaxAgeDays() + 1).from;
 
-  for (const row of pending as TransactionWithContext[]) {
+  // The filtered list, not `pending` — otherwise the suppression above would
+  // be counted and then ignored.
+  for (const row of alertablePending) {
     if (horizon && row.txn_date < horizon) {
       const { error } = await db
         .from('transactions')
@@ -794,7 +820,18 @@ export async function runObligationAlerts(
     db.from('obligations').select('*').in('status', ['open', 'draft']),
     loadUsdRates(db, asOf),
   ]);
-  const obligations = (obligationRows ?? []) as Obligation[];
+  /*
+   * The same rule as the transaction alerts, and the reason this file changed.
+   *
+   * QuickBooks' sandbox company ships with 31 invoices, most of them long
+   * overdue and none of them ever going to be paid. Importing them was correct;
+   * paging AHN about them was not. Twelve Slack messages went out before this
+   * existed, and more arrived each day as the fake receivables aged.
+   */
+  const sandboxedSources = sandboxSources();
+  const allObligations = (obligationRows ?? []) as Obligation[];
+  const obligations = allObligations.filter((o) => alertable(o, sandboxedSources));
+  summary.suppressedAsSandbox += allObligations.length - obligations.length;
 
   const ruleIds = rules.map((r) => r.id);
   const { data: alreadySent } = await db

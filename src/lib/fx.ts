@@ -14,6 +14,7 @@ import type { UsdRateMap } from '@/lib/calc/engine';
 import type { ISODate } from '@/lib/dates';
 import { daysBetween, today } from '@/lib/dates';
 import { fetchQuotes, isPlausible } from '@/lib/fx-feed';
+import { rowsOrThrow } from '@/lib/supabase/rows';
 
 /**
  * Build the "1 unit of X = N USD" map used by the calc engine.
@@ -34,8 +35,21 @@ export async function loadUsdRates(
     .lte('as_of', asOf)
     .order('as_of', { ascending: false });
 
+  /*
+   * An error and an empty table are different claims.
+   *
+   * No rate on file is a legitimate state: the currency is valued at zero and
+   * `/accounts` says which one is unpriced. A failed QUERY is not that — it is
+   * the system not working, and returning `{ USD: 1 }` would assert "there are
+   * no exchange rates", silently valuing every dong in the ledger at nothing.
+   * The two used to be the same branch.
+   */
+  if (error) {
+    throw new Error(`Could not read exchange rates: ${error.message}`);
+  }
+
   const rates: UsdRateMap = { USD: 1 };
-  if (error || !data) return rates;
+  if (!data) return rates;
 
   for (const row of data as Array<Pick<ExchangeRate, 'base_currency' | 'rate'>>) {
     const key = row.base_currency.toUpperCase();
@@ -62,9 +76,25 @@ export function missingRates(currencies: string[], rates: UsdRateMap): string[] 
  * first dong is ever imported rather than the morning after.
  */
 export async function currenciesInUse(db: SupabaseClient): Promise<string[]> {
-  const { data } = await db.from('accounts').select('currency');
+  /*
+   * The table is `financial_accounts`. This said `accounts` for two days.
+   *
+   * PostgREST answered 404, `(data ?? [])` made that an empty list, and the
+   * function returned `['VND']` every time — so the daily feed has only ever
+   * priced the dong. Nothing looked wrong, because VND is the only foreign
+   * currency AHN plans to hold. The day a PHP or SGD account was added, its
+   * rate would never have been fetched and every balance in it would have been
+   * valued at zero, silently.
+   *
+   * Fourth instance of the same bug in this codebase — see decisions 90, 95, 96
+   * — which is why the read now throws instead of shrugging.
+   */
+  const rows = rowsOrThrow<{ currency: string | null }>(
+    await db.from('financial_accounts').select('currency'),
+    'account currencies',
+  );
   const found = new Set<string>(['VND']);
-  for (const row of (data ?? []) as Array<{ currency: string | null }>) {
+  for (const row of rows) {
     if (row.currency) found.add(row.currency.toUpperCase());
   }
   found.delete('USD'); // One dollar is one dollar; it is seeded and never fetched.

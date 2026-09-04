@@ -1,7 +1,7 @@
 # Outstanding work
 
 Tracked against the 7-day schedule in [AHNFinancialOSMVPPlan.md](../AHNFinancialOSMVPPlan.md).
-For what is already built, see [DONE.md](DONE.md).
+For what is already built, see [DONE.md](DONE.md) — or [CHECKLIST.md](CHECKLIST.md) for the one-page version.
 
 ## Where the plan stands (3 Sep 2026)
 
@@ -93,6 +93,28 @@ Two things that may still come back from the bank:
   "production" and "development". Going live needs the real address in
   `VIETINBANK_API_BASE`; there is deliberately no default to fall back on.
 
+## 2b. VEEM credentials
+
+The connector is written and its request shape is proved: a token call with
+deliberately wrong credentials returns `401` from `api.veem.com`, so the host,
+path, method and Basic-auth scheme are all correct. Only real keys are missing.
+
+| | What | Goes in |
+|---|---|---|
+| 🟡 | **Client ID and Secret** from the Veem developer portal | `VEEM_CLIENT_ID`, `VEEM_CLIENT_SECRET` |
+| ⚪ | **Your Veem account id** | `VEEM_ACCOUNT_ID` — optional. Without it every payment is treated as outgoing, which is right for Philippines payroll and wrong the day somebody pays AHN through Veem. |
+
+**There is no sandbox.** Veem's documented sandbox host answers every path with
+an HTML sign-in page, including `/oauth/token`. The first real call will be
+against production data — it is read-only (the payment report), but worth
+knowing before you paste the keys.
+
+Only payments VEEM reports as **Complete** are treated as cash. Anything still
+in flight appears on **Owed & owing** as a commitment and settles itself when
+VEEM completes it.
+
+---
+
 ## 3. Decisions only you can make
 
 | | Decision | What hangs on it |
@@ -117,7 +139,7 @@ Two things that may still come back from the bank:
 | 🟡 | **Import AHN's real VN bank and VEEM exports** | The last piece of Day 6. Payroll is not needed — it comes through QuickBooks. Templates in [`samples/`](../samples/). VEEM rows categorise themselves from the source, so the mapping only has to identify the date and amount columns. **Create the VND account first** (Accounts → the account's currency decides how its amounts are parsed). The VN statement template now imports correctly end to end — see decisions 61–62 for the two bugs that found. |
 | ⚪ | **Decide whether your hand-set VND rate should stand** | You set 1 USD = 26,100 VND by hand for 1 and 2 September. The daily feed defers to a rate a person set, so those two days keep your number and Vietcombank’s 26,260 is ignored — which is the designed behaviour, not a fault. From 3 September the feed writes on its own. Delete those two rows only if you would rather the bank’s rate applied. |
 | 🟡 | **Set opening balances** on the VN bank and VEEM accounts | Otherwise their derived balances will not reconcile. `/reconcile` shows the gap. |
-| 🟡 | **Expect 25 overdue-invoice alerts the first time you re-enable alerting** | Every alert rule is currently off. QuickBooks' AR is now synced, and all 25 open items are already past due — the oldest by 74 days — because they are sandbox invoices. Each alerts once and then dedupes, but the first sweep after `overdue_receivable` goes back on will be 25 messages. Clear or void them in QuickBooks first if you would rather not. |
+| ⚪ | **12 Slack messages about sandbox invoices were sent on 3–4 Sep** | Fixed at the source — alerts now skip any row from an integration pointed at a test environment (decision 98), and the daily job went from 2 sent to 0. All 11 rules stay enabled and will start delivering the moment `QBO_ENVIRONMENT` becomes `production`. Nothing for you to switch; the old messages in Slack can be deleted or left. |
 | 🟡 | **Add your people and link them to logins** | `/timesheet` shows “your login is not linked to a person yet” until somebody creates a `people` row with your `user_id` on it — hours are recorded against a person, not a login, because a contractor can have one without the other. Add people on **/people** and set **Logs in as** on the same row — no SQL needed. Without this, §13 stays empty and every project margin keeps its “labour not counted” caveat. |
 | 🟡 | **Create AHN's projects and events, and attribute money to them** | There are **0 projects** and **0 transactions attributed to one**, so every §12/§14/§15/§16 figure — project P&L, event P&L, and the whole profitability roll-up — currently has nothing to show. The five business units from §15 are already seeded. Create projects on `/projects`, then assign transactions from the transaction page. This is the single biggest unlock left: the engine and the pages are built and waiting on data only AHN has. |
 | 🟡 | **Clear the 26 uncategorised transactions** | This is now measured rather than guessed at: `/explain` puts it at **26% of everything AHN spent in the last 90 days — $8,173.54 across 25 payments**. Every category breakdown, every budget and every driver list on the site is that much less useful until it is cleared. Mostly QuickBooks `BillPayment` rows, which carry no expense account. Categorise on `/transactions?uncategorized=1`, or press **Re-run categorisation** on `/reconcile` after a rule is added. |
@@ -181,7 +203,7 @@ reconciled on sight.
 
 | | Remaining engineering |
 |---|---|
-| 🟡 | **Software allocated to a project is still not counted** (§12). Employee labour now IS — see decision 91. Software is not an engineering gap: allocating a subscription across projects needs a basis (headcount? hours? an explicit tag?) and any choice flatters or punishes projects arbitrarily. **This one is a decision for you**, and the projects page states the gap rather than guessing. |
+| ⚪ | **Software allocated to a project** — done, see decision 101. Spread by share of logged hours; nothing is spread while no hours exist, because an even split would charge a project nobody touched. Software already on a project is left alone. |
 | ⚪ | **Editing a project** after creation — done, see decision 91. Name, status, dates, contracted/invoiced revenue and budgets, all audited. The business unit is deliberately not editable: moving a project restates two units' history. |
 
 ---
@@ -229,7 +251,7 @@ the authority of history a quarter later.
 | | Remaining engineering |
 |---|---|
 | ⚪ | **Gross vs. net margin targets** — done, see decision 93. The note that said the §7 taxonomy lacked a cost-of-delivery classification was simply wrong: it has had one all along. |
-| ⚪ | **Saved scenarios**, deliberately not built — see above. If AHN wants to compare plans over time it needs a decision about how a stored projection is labelled so nobody reads it as an actual. |
+| ⚪ | **Saved scenarios** — done, see decision 101. Inputs and the baseline are stored, never the figures, and every plan is labelled a plan with the month its baseline came from. |
 
 ---
 
@@ -251,8 +273,8 @@ on a projection the maths cannot support.
 
 | | Remaining engineering |
 |---|---|
-| ⚪ | **Editing a budget amount** in place. Saving the same scope and period again replaces it, which works but is not obvious. |
-| ⚪ | **Department-level budgets** (§19 names "department"). Business unit is the closest thing that exists; a separate department dimension needs its own table. |
+| ⚪ | **Editing a budget amount** in place — done, see decision 95. It turned out not to work at all: the unique key ignored NULL `scope_id`, so saving the same scope created a second budget and the database held six duplicates. Fixed, and the amount is now editable on the row. |
+| ⚪ | **Department-level budgets** — done, see decision 101. A department owns §7 spend categories, so its actuals need no second round of tagging. Create one on **/budgets**; a category may belong to only one department. |
 
 ---
 
@@ -315,6 +337,9 @@ viewer, who is trusted with the whole picture minus compensation.
 
 The *interpretation* half of the AI CFO layer (§20) · Google Workspace billing
 and automated SaaS vendor tracking.
+
+**The engineering backlog is otherwise empty.** Everything else in this document
+needs AHN — a credential, a third party's approval, or data only AHN has.
 
 §20's deterministic half is built and live at `/explain` — where the cash went,
 who moved, and which payments are unusual for the vendor that charged them, all

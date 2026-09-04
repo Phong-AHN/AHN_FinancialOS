@@ -26,11 +26,19 @@ export type SourceSystem =
   | 'finverse'
   /** VietinBank iConnect ERP Statement API — the corporate route. */
   | 'vietinbank'
+  /**
+   * VEEM's payment API — spec §2, "especially for Philippines payroll".
+   *
+   * Distinct from `csv_veem`, which stays. A file exported last quarter is
+   * still a legitimate record of what happened, and relabelling its provenance
+   * would be a lie about where those rows came from.
+   */
+  | 'veem'
   | 'csv_vn_bank'
   | 'csv_veem'
   | 'csv_payroll'
   | 'manual';
-export type IntegrationProvider = 'quickbooks' | 'plaid' | 'stripe' | 'finverse' | 'vietinbank';
+export type IntegrationProvider = 'quickbooks' | 'plaid' | 'stripe' | 'finverse' | 'vietinbank' | 'veem';
 export type IntegrationStatus = 'disconnected' | 'connected' | 'error';
 export type TxnDirection = 'inflow' | 'outflow';
 export type ReconStatus =
@@ -202,6 +210,16 @@ export interface AppUser {
   email: string;
   full_name: string | null;
   role: UserRole;
+
+  /**
+   * The Slack account this person uses slash commands with - migration 0026.
+   *
+   * Null for almost everybody, and null means they cannot use them: being in
+   * the AHN workspace is not by itself permission to read the company's
+   * finances (decision 83).
+   */
+  slack_user_id: string | null;
+
   created_at: string;
 }
 
@@ -229,6 +247,31 @@ export interface ManualImport {
   imported_by: string | null;
   imported_at: string;
   column_map: Record<string, unknown>;
+}
+
+/**
+ * A saved projection - Spec section 11, decision 101.
+ *
+ * The inputs and the baseline, never the computed figures: every number is
+ * recomputed on read, so a stored plan cannot drift away from what the engine
+ * would say today given the same inputs. `baseline_as_of` is what makes it a
+ * record — a plan made in June compounded June's revenue.
+ */
+export interface SavedScenario {
+  id: string;
+  name: string;
+  revenue_growth_rate: number;
+  expense_growth_rate: number;
+  months: number;
+  target_margin_ratio: number | null;
+  margin_basis: 'net' | 'gross' | null;
+  baseline_revenue_usd_minor: number;
+  baseline_expense_usd_minor: number;
+  baseline_months_sampled: number;
+  baseline_as_of: string;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
 }
 
 export interface ExchangeRate {
@@ -441,6 +484,21 @@ export interface ObligationRow {
   settled_txn_id: string | null;
   settled_on: string | null;
   is_recurring: boolean;
+
+  /**
+   * Where the row came from, and how often it repeats.
+   *
+   * Added by migrations 0027 and 0031; this type did not follow, so the alert
+   * engine could not tell a QuickBooks sandbox invoice from a commitment
+   * somebody typed. `source_system` defaults to `manual` in the database, so
+   * an older row is never null.
+   */
+  source_system: SourceSystem;
+  external_id: string | null;
+  recurrence: 'monthly' | 'quarterly' | 'annual' | null;
+  recurs_until: string | null;
+  generated_from_id: string | null;
+
   notes: string | null;
   created_at: string;
   updated_at: string;

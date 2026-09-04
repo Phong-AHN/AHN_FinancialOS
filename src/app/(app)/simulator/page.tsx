@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import { requireSession } from '@/lib/auth';
+import type { SavedScenario } from '@/lib/types';
+import { requireSession, sessionCan } from '@/lib/auth';
 import { loadSimulatorBaseline } from '@/lib/data';
 import { scenarioReliability } from '@/lib/calc/simulator';
 import { Simulator } from '@/components/Simulator';
@@ -15,18 +16,38 @@ export const dynamic = 'force-dynamic';
  * 5/10/20% instead would have produced three authoritative-looking numbers with
  * no relationship to this business.
  *
- * Nothing on this page is stored. A saved projection acquires the authority of
- * a record, and a quarter later somebody reads last quarter's guess as history.
+ * SAVING ONE WAS DELIBERATELY REFUSED FOR A LONG TIME, and the reason still
+ * holds: a stored projection acquires the authority of a record, and a quarter
+ * later somebody reads last quarter's guess as history. What changed is that
+ * the concern now has an answer rather than a prohibition (decision 101):
+ *
+ *   - Only the INPUTS and the BASELINE are stored. Every figure is recomputed
+ *     on read, so a saved plan can never disagree with a fresh one built from
+ *     the same inputs.
+ *   - The baseline is frozen with it. A plan made in June compounded June's
+ *     revenue; re-running it against today's would silently change what
+ *     somebody agreed to.
+ *   - It is labelled a plan everywhere it appears, with the date it was made
+ *     and the month its baseline came from. No page adds it to an actual.
  */
 export default async function SimulatorPage() {
   const supabase = createSupabaseServerClient();
-  const [, { baseline, scenarios }] = await Promise.all([
+  const [session, { baseline, scenarios }, savedRes] = await Promise.all([
     requireSession(),
     loadSimulatorBaseline(supabase),
+    // A saved scenario is a PROJECTION. It is loaded here and labelled as one
+    // wherever it appears; nothing adds it to an actual.
+    supabase
+      .from('scenarios')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20),
   ]);
 
   const usable = baseline.monthsSampled > 0 && baseline.revenueUsdMinor > 0;
   const reliability = scenarioReliability(baseline);
+  const canSave = sessionCan(session, 'move_money');
+  const saved = (savedRes.data ?? []) as SavedScenario[];
 
   return (
     <>
@@ -57,6 +78,8 @@ export default async function SimulatorPage() {
             baseline={baseline}
             scenarios={scenarios}
             scenariosReliable={reliability.reliable}
+            saved={saved}
+            canSave={canSave}
           />
         </>
       )}

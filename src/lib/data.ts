@@ -34,6 +34,8 @@ import {
   type Scenario,
 } from '@/lib/calc/simulator';
 import { loadUsdRates } from '@/lib/fx';
+import { rowsOrThrow } from '@/lib/supabase/rows';
+import { allocateByHours, type AllocationResult } from '@/lib/calc/allocation';
 import { addDays, today, type ISODate } from '@/lib/dates';
 import {
   comparePeriods,
@@ -116,8 +118,8 @@ export async function loadDashboard(
     loadUsdRates(db, asOf),
   ]);
 
-  const accounts = (accountsRes.data ?? []) as FinancialAccount[];
-  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+  const accounts = rowsOrThrow<FinancialAccount>(accountsRes, 'accounts');
+  const transactions = rowsOrThrow<TransactionWithContext>(txnRes, 'transactions');
 
   return {
     snapshot: computeSnapshot(accounts, transactions as Transaction[], asOf, rates),
@@ -366,7 +368,7 @@ export async function loadRecurringCharges(
     loadUsdRates(db, asOf),
   ]);
 
-  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+  const transactions = rowsOrThrow<TransactionWithContext>(txnRes, 'transactions');
   const charges = detectRecurringCharges(transactions as Transaction[], { asOf, rates });
 
   return {
@@ -396,6 +398,16 @@ export interface ProjectPortfolio {
    * an entry of 0 means "counted, and nobody logged time".
    */
   labourByProject: Map<string, number> | null;
+
+  /**
+   * Shared software spread across projects by share of logged hours.
+   *
+   * Null on the same terms as labour. `softwareAllocation` carries the pool and,
+   * when nothing could be spread, the reason — so the page can say why the
+   * column is empty instead of showing zeroes.
+   */
+  softwareByProject: Map<string, number> | null;
+  softwareAllocation: AllocationResult | null;
 }
 
 /**
@@ -430,7 +442,7 @@ export async function loadProjectPortfolio(
   ]);
 
   const projects = (projectsRes.data ?? []) as ProjectWithContext[];
-  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+  const transactions = rowsOrThrow<TransactionWithContext>(txnRes, 'transactions');
 
   const { rows, unassigned } = groupByProject(projects, transactions as Transaction[], rates);
 
@@ -443,6 +455,9 @@ export async function loadProjectPortfolio(
    * people on it.
    */
   let labourByProject: Map<string, number> | null = null;
+  let softwareByProject: Map<string, number> | null = null;
+  let softwareAllocation: AllocationResult | null = null;
+
   if (opts.canSeeCompensation === true) {
     const [timeRes, peopleRes] = await Promise.all([
       db.from('time_entries').select('*').limit(20_000),
@@ -451,13 +466,33 @@ export async function loadProjectPortfolio(
     const entries = (timeRes.data ?? []) as TimeEntry[];
     const people = (peopleRes.data ?? []) as Person[];
     labourByProject = new Map();
+    const hoursByProject = new Map<string, number>();
     for (const { project } of rows) {
       const forProject = entries.filter((e) => e.project_id === project.id);
-      labourByProject.set(
-        project.id,
-        computeProjectLabour(forProject, people, project).actualCostUsdMinor,
-      );
+      const labour = computeProjectLabour(forProject, people, project);
+      labourByProject.set(project.id, labour.actualCostUsdMinor);
+      hoursByProject.set(project.id, labour.actualHours);
     }
+
+    /*
+     * Shared software - spec section 12's other allocated cost.
+     *
+     * The pool is software spend NOT already attributed to a project: anything
+     * somebody put directly on a project is a direct cost and is already in its
+     * P&L, so spreading it again would charge that project twice.
+     */
+    const softwarePool = transactions
+      .filter(
+        (t) =>
+          t.direction === 'outflow' &&
+          countsTowardPnl(t) &&
+          t.category === 'software' &&
+          !t.project_id,
+      )
+      .reduce((sum, t) => sum + usdMinorOf(t, rates), 0);
+
+    softwareAllocation = allocateByHours(softwarePool, hoursByProject);
+    softwareByProject = softwareAllocation.byProject;
   }
 
   return {
@@ -467,6 +502,8 @@ export async function loadProjectPortfolio(
     units: (unitsRes.data ?? []) as BusinessUnit[],
     rates,
     labourByProject,
+    softwareByProject,
+    softwareAllocation,
   };
 }
 
@@ -523,7 +560,7 @@ export async function loadProject(
   const project = projectRes.data as ProjectWithContext | null;
   if (!project) return null;
 
-  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+  const transactions = rowsOrThrow<TransactionWithContext>(txnRes, 'transactions');
   const pnl = computeProjectPnl(transactions as Transaction[], project, rates);
 
   /*
@@ -609,7 +646,7 @@ export async function loadSimulatorBaseline(
     loadUsdRates(db, asOf),
   ]);
 
-  const transactions = (txnRes.data ?? []) as Transaction[];
+  const transactions = rowsOrThrow<Transaction>(txnRes, 'transactions');
 
   const burn = computeBurnRate(transactions, asOf, SIMULATOR_MONTHS, rates);
 
@@ -727,16 +764,19 @@ export async function loadBudgetTargets(db: SupabaseClient): Promise<{
   clients: Array<{ id: string; name: string }>;
   projects: Array<{ id: string; name: string }>;
   categories: string[];
+  departments: Array<{ id: string; name: string }>;
 }> {
-  const [companies, units, clients, projects, categories] = await Promise.all([
+  const [companies, units, clients, projects, categories, departments] = await Promise.all([
     db.from('companies').select('id,name').order('name'),
     db.from('business_units').select('id,name').eq('is_active', true).order('sort_order'),
     db.from('clients').select('id,name').order('name'),
     db.from('projects').select('id,name').in('status', ['planned', 'active']).order('name'),
     loadCategories(db),
+    db.from('departments').select('id,name').order('sort_order'),
   ]);
 
   return {
+    departments: (departments.data ?? []) as Array<{ id: string; name: string }>,
     companies: (companies.data ?? []) as Array<{ id: string; name: string }>,
     businessUnits: (units.data ?? []) as Array<{ id: string; name: string }>,
     clients: (clients.data ?? []) as Array<{ id: string; name: string }>,
@@ -839,8 +879,8 @@ export async function loadExplainBoard(
     loadUsdRates(db, asOf),
   ]);
 
-  const accounts = (accountsRes.data ?? []) as FinancialAccount[];
-  const transactions = (txnRes.data ?? []) as TransactionWithContext[];
+  const accounts = rowsOrThrow<FinancialAccount>(accountsRes, 'accounts');
+  const transactions = rowsOrThrow<TransactionWithContext>(txnRes, 'transactions');
   const snapshot = computeSnapshot(accounts, transactions as Transaction[], asOf, rates);
 
   const movedInWindow = (transactions as Transaction[])

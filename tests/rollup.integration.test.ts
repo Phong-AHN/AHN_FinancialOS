@@ -139,10 +139,11 @@ describe.skipIf(!CONFIGURED)('multi-source rollup (live database)', () => {
       vietinbank: 2,
       finverse: 3,
       stripe: 4,
-      csv_vn_bank: 5,
-      csv_veem: 6,
-      csv_payroll: 7,
-      manual: 8,
+      veem: 5,
+      csv_vn_bank: 6,
+      csv_veem: 7,
+      csv_payroll: 8,
+      manual: 9,
     };
 
     for (const row of transactions) {

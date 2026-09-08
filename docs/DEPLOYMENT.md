@@ -143,6 +143,9 @@ PLAID_CLIENT_ID / PLAID_SECRET / PLAID_ENV
 STRIPE_SECRET_KEY          an sk_test_ key is treated as sandbox and its rows
                            never raise an alert (decision 98)
 VEEM_CLIENT_ID / VEEM_CLIENT_SECRET / VEEM_ACCOUNT_ID / VEEM_API_BASE
+VEEM_FUNDING_METHOD_ID     which account pays outgoing payroll. Optional — Veem
+VEEM_FUNDING_METHOD_TYPE   uses the default when unset. List them with
+                           GET /veem/v1.2/account/fundingMethods
 VIETINBANK_CLIENT_ID / VIETINBANK_CLIENT_SECRET / VIETINBANK_ACCOUNT_NUMBER
 VIETINBANK_PROVIDER_ID / VIETINBANK_MERCHANT_ID / VIETINBANK_ENV
 VIETINBANK_API_BASE / VIETINBANK_ACCOUNT_TYPE / VIETINBANK_CHANNEL / VIETINBANK_MODEL
@@ -184,6 +187,46 @@ be reconnected.
 
 After deploying, update the redirect URI on the Intuit app to the production URL
 and set `QBO_REDIRECT_URI` to match.
+
+### The five URLs Intuit asks for
+
+Intuit will not issue **production** keys until the app settings are complete.
+Five of the fields are URLs this repository serves. Replace `APP` with the
+production origin (`https://ahn-financial-os.vercel.app`, or the custom domain
+if one is set) and paste them in exactly.
+
+| Intuit field | Value | What it does |
+|---|---|---|
+| Host domain | `APP` without the scheme | Must be the origin the other URLs sit on, or Intuit rejects them. |
+| Launch URL | `APP/launch` | Where QuickBooks sends someone who clicks the app tile inside their company file. Signed in, it lands on Integrations; signed out, on the sign-in page. |
+| Disconnect URL | `APP/disconnect` | Where QuickBooks sends someone who has just disconnected the app from inside QuickBooks. A confirmation page — **it deliberately changes nothing**, see below. |
+| Connect / Reconnect URL | `APP/api/integrations/quickbooks/connect` | Starts the OAuth flow. Same route the Connect button uses. |
+| EULA link | `APP/eula` | End-User License Agreement. |
+| Privacy policy link | `APP/privacy` | Privacy policy. |
+
+And separately, under **Keys & OAuth**:
+
+| Redirect URI | `APP/api/integrations/quickbooks/callback` |
+|---|---|
+
+All six are reachable **without signing in**, because the reviewer opening them
+is not an AHN user. `tests/app-urls.test.ts` fails if any of them moves inside
+the authenticated route group.
+
+**Why the Disconnect URL does not disconnect anything.** Intuit reaches it with
+an ordinary browser redirect: nothing is signed, and the URL is written down in
+the app settings and in this file. If loading that page revoked the tokens, then
+any crawler, link preview or prefetch could sever AHN's accounting connection
+with a GET. There is also nothing urgent to do — by the time anybody lands
+there, Intuit has already revoked the grant at their end. Clearing AHN's stored
+copy is housekeeping, and it happens on the Integrations page, where a signed-in
+owner does it deliberately and the token is revoked at Intuit first.
+
+**This is a private app, not an App Store listing.** AHN connects its own
+QuickBooks company, so no Intuit SSO is implemented on the Launch URL: arriving
+from QuickBooks decides where you land, never whether you are let in. If AHN
+ever publishes to the Intuit App Store, OpenID Connect SSO becomes a
+requirement and the Launch URL has to be rewritten.
 
 ---
 

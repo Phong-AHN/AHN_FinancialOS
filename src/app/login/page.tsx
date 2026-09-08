@@ -4,6 +4,7 @@ import { AuthHashHandler } from '@/components/AuthHashHandler';
 import { getSession } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase/server';
 import { SetupRequired } from '@/components/SetupRequired';
+import { safeNextPath } from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,8 +15,18 @@ export default async function LoginPage({
 }) {
   if (!isSupabaseConfigured()) return <SetupRequired />;
 
+  // Where to land after signing in. Somebody arriving from the QuickBooks app
+  // tile (`/launch`) is heading for Integrations, not the dashboard — losing
+  // that on the way through sign-in is how a two-click journey becomes five.
+  //
+  // Resolved on the server and passed down as a prop rather than read in the
+  // browser: `useSearchParams` in a client component drags a Suspense boundary
+  // in with it, and the value has to be laundered through `safeNextPath`
+  // either way.
+  const next = safeNextPath(searchParams.next, '/');
+
   const session = await getSession();
-  if (session) redirect('/');
+  if (session) redirect(next);
 
   return (
     <div className="flex min-h-screen items-center justify-center px-6">
@@ -26,7 +37,7 @@ export default async function LoginPage({
         </div>
 
         <div className="card p-6">
-          <LoginForm />
+          <LoginForm next={next} />
         </div>
 
         {/* Completes an implicit-flow email link, whose token never reaches the server. */}
@@ -44,10 +55,15 @@ export default async function LoginPage({
         </p>
 
         {/* Public, and linked from the one page every visitor reaches. Plaid
-            requires a reachable privacy policy before Link may be deployed. */}
+            requires a reachable privacy policy before Link may be deployed, and
+            Intuit requires both of these before it issues production keys. */}
         <p className="faint mt-3 text-center text-[11.5px]">
           <a href="/privacy" className="underline underline-offset-2">
             Privacy policy
+          </a>
+          {' · '}
+          <a href="/eula" className="underline underline-offset-2">
+            Terms of use
           </a>
         </p>
       </div>

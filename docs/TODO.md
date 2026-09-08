@@ -46,7 +46,8 @@ Ordered so the things with the longest lead time start first.
 | | Task | What to do | Why it cannot wait |
 |---|---|---|---|
 | 🔴 | **Apply for Plaid Production access** | dashboard.plaid.com → Team Settings → Company → request Production. **Select exactly two products: Transactions and Balance.** Use case for Transactions is *SMB bookkeeping*; for Balance it is *Other* — every other Balance option is a payments use case and this system never moves money. Privacy policy is live at `/privacy` (public, no login). | Plaid **retired** Development; sandbox proves the pipeline meanwhile. |
-| 🔴 | **Get the QuickBooks *production* key pair** | developer.intuit.com → your app → **Production Settings** → Keys. Intuit issues a **separate pair per environment**, so the sandbox keys will not work. | Everything currently in the app came from a *sandbox* company. None of it is AHN's real money. |
+| 🔴 | **Get the QuickBooks *production* key pair** | developer.intuit.com → your app → **Production Settings** → Keys. Intuit issues a **separate pair per environment**, so the sandbox keys will not work. Intuit will not release them until the app settings are complete — **every URL it asks for now exists**, see the table below. | Everything currently in the app came from a *sandbox* company. None of it is AHN's real money. |
+| 🔴 | **Fill in the Intuit app settings** | Six URLs, all live and all reachable without signing in. Replace `APP` with the deployed origin. Full table with what each one does: [DEPLOYMENT.md](DEPLOYMENT.md#the-five-urls-intuit-asks-for). | This was the blocker on production keys. Nothing here needs code any more. |
 | 🔴 | **Register at [openapi.vietinbank.vn](https://openapi.vietinbank.vn) and send five values** | Create an account → create an application → the Client ID and Secret are issued **instantly**, no approval wait. The secret is shown once. | **The connector is written and tested against the bank's own example response.** These five values are the only thing between it and live Vietnamese corporate data. |
 | 🟡 | **Get Finverse credentials** | [finverse.com](https://www.finverse.com/bank-data-api) → dashboard. | The fallback, and probably not the right one: Finverse lists VietinBank and Techcombank as *individual accounts only*. Worth a direct question to them before spending time here. |
 | ⚪ | **Techcombank Open API** | No public self-serve sandbox — apply through business banking. | Blocked on the bank. CSV import covers the meantime and now imports correctly. |
@@ -119,6 +120,31 @@ VEEM completes it.
 
 | | Decision | What hangs on it |
 |---|---|---|
+### The six values to paste into the Intuit app settings
+
+Replace `APP` with the deployed origin (for example `https://ahn-financial-os.vercel.app`).
+
+| Intuit field | Paste this |
+|---|---|
+| Host domain | `APP` without the scheme |
+| Launch URL | `APP/launch` |
+| Disconnect URL | `APP/disconnect` |
+| Connect / Reconnect URL | `APP/api/integrations/quickbooks/connect` |
+| EULA link | `APP/eula` |
+| Privacy policy link | `APP/privacy` |
+| Redirect URI (under *Keys & OAuth*) | `APP/api/integrations/quickbooks/callback` |
+
+All of them answer without a login, because the Intuit reviewer opening them is
+not an AHN user. `tests/app-urls.test.ts` fails if any moves behind the session
+guard.
+
+**One thing needs a human decision, not a credential:** the EULA names a
+governing jurisdiction, currently *the State of California*. Nothing in the
+codebase records where AHN Media LLC is incorporated, so that value was not
+verified against anything — it is a named constant at the top of
+`src/app/eula/page.tsx`. Correct it before relying on the document, and have a
+lawyer read the whole thing.
+
 | 🔴 | **Switch QuickBooks to production** | Needs the key pair from §1 **and** the deployed URL registered as a redirect URI under Production Settings. Until then every figure on every page is sandbox data. |
 | 🟡 | **Confirm the alert thresholds** on `/alerts` | Defaults: unusually-large outflow > $5,000, low runway < 6 months, low balance < $10,000. |
 | 🟡 | **Decide the runway floor** | Runway now reads **10.1 months** if revenue stopped, 15.2 at current net burn, 5.6 in the worst month on record. It read 3.6 while credit-card settlements were wrongly counted as spend. If 6 months is not AHN's real floor, change it on `/alerts`. |
@@ -146,6 +172,8 @@ VEEM completes it.
 | 🟡 | **Create the Slack app for slash commands** | A new command `/ahn`, request URL `https://<your-app>/api/slack/commands`. Copy the **Signing Secret** from Basic Information into `SLACK_SIGNING_SECRET`. Without it the endpoint refuses every request rather than answering unauthenticated. |
 | 🟡 | **Link each person's Slack account** | On **/access** — no SQL needed. Find the id in Slack under the person's profile → *Copy member ID*. Anyone unlinked is refused by name — deliberately: being in the AHN workspace is not by itself permission to read the company's finances, and contractors and agency staff sit in that same workspace. |
 | 🟡 | **Delete ~80 stray Slack messages by hand** | Posted through the incoming webhook, which carries a different bot identity, so `chat.delete` refuses them (`cant_delete_message`). Removing `SLACK_WEBHOOK_URL` from `.env.local` stops that identity being usable at all — the bot token covers every channel already. |
+| 🔴 | **Appoint a CFO before payroll can ever be sent** | A run must be approved by somebody other than whoever prepared it — enforced by a database trigger, not by the interface. Only `pinlo752004@gmail.com` holds the `disburse` capability today, so **no payment can be sent at all**. Create a second login with the `cfo` role on **/access**. |
+| 🔴 | **Get VEEM credentials before the first payroll run** | `VEEM_CLIENT_ID` and `VEEM_CLIENT_SECRET`. VEEM has **no working sandbox** — its documented sandbox host serves a sign-in page — so the first send is against production money. Use **Preview** first: it builds the exact payload for every person and calls nothing. Start with one small real payment before a whole run. |
 | 🟡 | **Appoint a second owner** | There is exactly one. The database refuses to demote the last owner, but it cannot stop that account being lost — and with no owner, nobody inside the app can appoint one. `/access` warns while this is true. |
 | 🟡 | **Delete `viewer-test@asianhustlenetwork.com`** | Its password has been re-randomised so nobody can sign in, but the account still exists. It was created to prove RLS and has now done so twice. |
 

@@ -8,8 +8,8 @@ under way.** The one Phase 2 item still open is real API access for the VN banks
 VEEM — the connectors are written and tested; what is missing is AHN’s registration,
 not code.
 
-At a glance: 17 nav pages (19 routes) · 35 API routes · 35 migrations · 575 passing tests
-(72 gated behind env flags) · 101 recorded engineering decisions.
+At a glance: 18 nav pages (20 routes) · 38 API routes · 37 migrations · 600 passing tests
+(72 gated behind env flags) · 102 recorded engineering decisions.
 
 ---
 
@@ -111,6 +111,12 @@ At a glance: 17 nav pages (19 routes) · 35 API routes · 35 migrations · 575 p
       payloads.
 
 ## Phase 3
+
+- [x] **Payroll disbursement through VEEM (§7)** — the first feature that moves
+      money. Prepared by one person, approved by another (enforced in Postgres),
+      then sent. Its own `disburse` capability, ceilings that catch a units
+      error, an idempotency key stored before the call, and a dry run as the
+      default because VEEM has no sandbox to rehearse in.
 
 - [x] **The backlog is empty.** The last three items each needed a decision,
       and each was made explicitly: software allocated **by share of logged
@@ -316,5 +322,17 @@ Three habits did most of the work, and each caught bugs nothing else did:
    allocated software is reported as *absent* from project margins rather than
    as a confident $0 that would flatter every one of them.
 
+4. **Check a claim against a control.** A 401 from a vendor's gateway does not
+   prove an endpoint exists — decision 94 got that wrong. Intuit's revoke
+   endpoint was accepted only because a *deliberately fake path on the same
+   host* answered differently (404 against 400). One response on its own is
+   never evidence.
+
+5. **A document that describes the software is part of the software.** The
+   privacy policy claimed AHN could disconnect a provider and that doing so
+   revoked the token. No such control existed, and no revoke call existed
+   anywhere. It was fixed by building both, not by softening the sentence, and
+   a test now fails if the page and the code separate again — decision 103.
+
 The full reasoning, including the mistakes, is in
-[DECISIONS.md](DECISIONS.md) — 101 numbered entries.
+[DECISIONS.md](DECISIONS.md) — 103 numbered entries.

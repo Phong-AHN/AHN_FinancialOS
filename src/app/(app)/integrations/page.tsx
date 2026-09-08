@@ -19,6 +19,7 @@ import { formatDateTime, relativeTime } from '@/lib/dates';
 import { PlaidLinkButton } from '@/components/PlaidLinkButton';
 import { EnableStripeButton } from '@/components/EnableStripeButton';
 import { SyncButton } from '@/components/SyncButton';
+import { DisconnectButton } from '@/components/DisconnectButton';
 import type { Integration } from '@/lib/types';
 import { Badge, Callout, Card, LinkButton, PageHeader, SectionHeader, buttonClass } from '@/components/ui';
 
@@ -306,6 +307,17 @@ export default async function IntegrationsPage({
                       <span className="faint">
                         {c.last_synced_at ? `Last synced ${relativeTime(c.last_synced_at)}` : 'Never synced'}
                       </span>
+                      {/* The privacy policy promises this control exists and
+                          that using it revokes the stored token. It does both
+                          — see /api/integrations/[id]. */}
+                      {c.status === 'disconnected' ? (
+                        <span className="faint">Disconnected · stored credentials deleted</span>
+                      ) : (
+                        <DisconnectButton
+                          integrationId={c.id}
+                          label={c.label ?? provider.name}
+                        />
+                      )}
                       {c.last_error && (
                         <span className="w-full text-[12px]" style={{ color: 'var(--outflow)' }}>
                           {c.last_error}

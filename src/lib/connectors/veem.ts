@@ -377,3 +377,166 @@ export function splitByStatus(payments: NormalizedVeemPayment[]): SplitPayments 
   }
   return { settled, inFlight, discarded };
 }
+
+// ─── Sending money (spec §7) ────────────────────────────────────────────────
+
+/**
+ * Creating a payment - `POST /veem/v1.2/payments`.
+ *
+ * TWO THINGS ARE UNPROVEN HERE, and both are stated rather than hidden.
+ *
+ *   1. **The path is from documentation, not observation.** Under
+ *      `/veem/v1.2/`, `api.veem.com` authenticates before routing: a
+ *      deliberately fake path answers 401 exactly as a real one does. Probing
+ *      established the host and the auth scheme; it could not establish that
+ *      this endpoint exists.
+ *   2. **There is no sandbox.** `sandbox-api.veem.com` serves an HTML sign-in
+ *      page on every path, so the first execution is against production money.
+ *
+ * Hence `dryRun`, which is the DEFAULT. It builds and validates the exact
+ * payload and returns it without calling anything, so AHN can read what would
+ * be sent before a dollar moves.
+ */
+export interface SendPaymentInput {
+  /** The idempotency key. Generated and stored BEFORE this is called. */
+  requestId: string;
+  payeeEmail: string;
+  payeeFirstName: string;
+  payeeLastName: string;
+  payeeCountryCode: string;
+  amountMajor: number;
+  currency: string;
+  purposeOfPayment: string;
+  /** Which of AHN's funding methods pays for it. */
+  fundingMethodId?: string | null;
+  fundingMethodType?: string | null;
+}
+
+export interface SendPaymentResult {
+  /** False when this was a dry run: nothing was called. */
+  sent: boolean;
+  /** Exactly what would be, or was, POSTed. */
+  payload: Record<string, unknown>;
+  veemPaymentId: string | null;
+  veemStatus: string | null;
+  error: string | null;
+  /** True when Veem refused because this key was already used. */
+  duplicate: boolean;
+}
+
+export function buildPaymentPayload(input: SendPaymentInput): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    purposeOfPayment: input.purposeOfPayment,
+    payee: {
+      email: input.payeeEmail,
+      firstName: input.payeeFirstName,
+      lastName: input.payeeLastName,
+      countryCode: input.payeeCountryCode.toUpperCase(),
+      type: 'Business',
+    },
+    amount: {
+      // Veem takes a major-unit number. The ledger holds minor units, so the
+      // conversion happens once, here, at the boundary - not scattered.
+      number: input.amountMajor,
+      currency: input.currency.toUpperCase(),
+    },
+  };
+
+  if (input.fundingMethodId) {
+    payload.fundingMethod = { id: input.fundingMethodId, type: input.fundingMethodType ?? 'Bank' };
+  }
+  return payload;
+}
+
+export async function sendPayment(
+  input: SendPaymentInput,
+  opts: { accessToken?: string; dryRun?: boolean; timeoutMs?: number } = {},
+): Promise<SendPaymentResult> {
+  const payload = buildPaymentPayload(input);
+
+  // The default. Sending requires asking for it explicitly.
+  if (opts.dryRun !== false) {
+    return { sent: false, payload, veemPaymentId: null, veemStatus: null, error: null, duplicate: false };
+  }
+
+  const accessToken = opts.accessToken ?? (await fetchAccessToken());
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000);
+
+  try {
+    const res = await fetch(`${veemBase()}/veem/v1.2/payments`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+        // Veem answers a reused key with 409, which is what makes a retry after
+        // a timeout safe - provided the key was stored before the first try.
+        'x-request-id': input.requestId,
+      },
+      body: JSON.stringify(payload),
+      cache: 'no-store',
+    });
+
+    const text = await res.text();
+
+    if (res.status === 409) {
+      return {
+        sent: false,
+        payload,
+        veemPaymentId: null,
+        veemStatus: null,
+        error: 'Veem has already seen this payment (409). It was not sent again.',
+        duplicate: true,
+      };
+    }
+
+    let parsed: { id?: number | string; status?: string } = {};
+    try {
+      parsed = JSON.parse(text) as typeof parsed;
+    } catch {
+      return {
+        sent: false,
+        payload,
+        veemPaymentId: null,
+        veemStatus: null,
+        error: `VEEM answered ${res.status} with a non-JSON body. Check VEEM_API_BASE.`,
+        duplicate: false,
+      };
+    }
+
+    if (!res.ok) {
+      return {
+        sent: false,
+        payload,
+        veemPaymentId: null,
+        veemStatus: null,
+        error: `VEEM refused the payment (${res.status}): ${text.slice(0, 300)}`,
+        duplicate: false,
+      };
+    }
+
+    return {
+      sent: true,
+      payload,
+      veemPaymentId: parsed.id === undefined ? null : String(parsed.id),
+      veemStatus: parsed.status ?? null,
+      error: null,
+      duplicate: false,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** "Jomar Reyes" -> first and last, for Veem's separate name fields. */
+export function splitName(full: string): { firstName: string; lastName: string } {
+  const parts = full.trim().split(/\s+/);
+  if (parts.length === 1) {
+    // Veem wants both. Repeating the single name is honest; inventing a
+    // surname is not.
+    return { firstName: parts[0] ?? '', lastName: parts[0] ?? '' };
+  }
+  return { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1]! };
+}

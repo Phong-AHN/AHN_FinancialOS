@@ -87,9 +87,24 @@ const pages = [
   ['/alerts', ['Rules', 'End-to-end test', 'Delivery log']],
   ['/integrations', ['QuickBooks', 'Plaid', 'Stripe']],
   ['/import', ['Import a statement']],
+  ['/payroll', ['Payroll']],
   ['/timesheet', ['My hours']],
   ['/access', ['Who has access']],
   ['/audit', ['Audit log']],
+];
+
+/**
+ * The pages Intuit and Plaid open WHILE SIGNED OUT.
+ *
+ * Checked without the session cookie on purpose. Every one of these is pasted
+ * into a provider's app settings, and a reviewer who gets bounced to /login
+ * files that as a finding — which is invisible from a smoke run that is
+ * authenticated for everything.
+ */
+const publicPages = [
+  ['/privacy', ['Privacy Policy', 'QuickBooks Online (Intuit)', 'Plaid']],
+  ['/eula', ['End-User License Agreement', 'Governing law', 'not produced, endorsed']],
+  ['/disconnect', ['QuickBooks has been disconnected']],
 ];
 
 let failures = 0;
@@ -124,6 +139,36 @@ for (const [path, expects] of pages) {
       (errored ? '  [render error]' : '') +
       (missing.length ? `  missing: ${missing.join(', ')}` : ''),
   );
+}
+
+for (const [path, expects] of publicPages) {
+  let r;
+  try {
+    r = await fetch(`${base}${path}`, { redirect: 'manual' });
+  } catch (err) {
+    failures++;
+    console.log(`FAIL  ${path.padEnd(16)} ${err.message}`);
+    continue;
+  }
+  const body = r.status === 200 ? await r.text() : '';
+  const missing = expects.filter((e) => !body.toLowerCase().includes(e.toLowerCase()));
+  const ok = r.status === 200 && missing.length === 0;
+  if (!ok) failures++;
+  console.log(
+    `${ok ? 'PASS' : 'FAIL'}  ${path.padEnd(16)} ${r.status} (anonymous)` +
+      (r.status === 307 || r.status === 302 ? ` -> ${r.headers.get('location')}` : '') +
+      (missing.length ? `  missing: ${missing.join(', ')}` : ''),
+  );
+}
+
+// The Launch URL is a redirect, not a page: signed out it must reach sign-in,
+// carrying where it was going.
+{
+  const r = await fetch(`${base}/launch`, { redirect: 'manual' });
+  const location = r.headers.get('location') ?? '';
+  const ok = (r.status === 307 || r.status === 302) && location.includes('/login');
+  if (!ok) failures++;
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${'/launch'.padEnd(16)} ${r.status} (anonymous) -> ${location}`);
 }
 
 // Pull the runway figures straight out of the rendered HTML.

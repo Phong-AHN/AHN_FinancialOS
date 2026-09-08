@@ -147,6 +147,48 @@ export async function refreshTokens(refreshToken: string): Promise<TokenResponse
 }
 
 /**
+ * Tell Intuit to forget the connection - the other half of disconnecting.
+ *
+ * WITHOUT THIS, "disconnect" IS A LIE. Deleting our copy of the token stops us
+ * using it, and leaves the grant live on Intuit's side: the app keeps showing
+ * in the company's Connected Apps and the token stays valid for anybody who
+ * ever held it. The privacy policy promises the token is revoked, so it has to
+ * actually be revoked.
+ *
+ * The refresh token is the one to send. Revoking it invalidates the whole
+ * grant, including access tokens minted from it; revoking an access token
+ * alone leaves the refresh token able to mint another.
+ *
+ * VERIFIED, not assumed. This endpoint answers 400 to a malformed token while a
+ * made-up path under the same host answers 404 — so the 400 is the endpoint
+ * rejecting the token, not the gateway rejecting the URL. That distinction is
+ * exactly what the VEEM check got wrong (decision 94).
+ */
+const REVOKE_URL = 'https://developer.api.intuit.com/v2/oauth2/tokens/revoke';
+
+export async function revokeTokens(refreshToken: string): Promise<void> {
+  const res = await fetch(REVOKE_URL, {
+    method: 'POST',
+    headers: {
+      authorization: basicAuthHeader(),
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({ token: refreshToken }),
+  });
+
+  // 400 means Intuit does not recognise the token — already revoked, or expired
+  // after 101 days of disuse. Either way the grant is gone, which is the state
+  // the caller wanted. Treating that as a failure would leave a dead row nobody
+  // could ever delete.
+  if (res.ok || res.status === 400) return;
+
+  throw new Error(
+    `QuickBooks refused to revoke the token (${res.status}): ${(await res.text()).slice(0, 200)}`,
+  );
+}
+
+/**
  * Returns a usable access token, refreshing it first when it is close to
  * expiry. The 60-second cushion stops a token from dying mid-sync.
  */

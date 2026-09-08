@@ -19,6 +19,15 @@ export type Capability =
   | 'see_compensation'
   | 'see_all_money'
   | 'move_money'
+  /**
+   * May cause money to LEAVE the company - spec §7 payroll.
+   *
+   * Deliberately separate from `move_money`, which means "may edit financial
+   * records". Editing is reversible by another edit; a payment is not. Sharing
+   * one capability would have granted disbursement to everybody who could
+   * already fix a typo.
+   */
+  | 'disburse'
   | 'categorise'
   | 'manage_integrations'
   | 'manage_people'
@@ -37,6 +46,7 @@ const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
     'see_compensation',
     'see_all_money',
     'move_money',
+    'disburse',
     'categorise',
     'manage_integrations',
     'manage_people',
@@ -49,6 +59,7 @@ const ROLE_CAPABILITIES: Record<UserRole, readonly Capability[]> = {
     'see_compensation',
     'see_all_money',
     'move_money',
+    'disburse',
     'categorise',
     'manage_integrations',
     'manage_people',
@@ -78,6 +89,8 @@ export function capabilitiesOf(role: UserRole | null | undefined): readonly Capa
 
 /** For UI copy: what to tell somebody who cannot do the thing. */
 export const CAPABILITY_REFUSAL: Record<Capability, string> = {
+  disburse:
+    'Sending money is restricted to the owner and the CFO, and a run must be approved by somebody other than whoever prepared it.',
   see_compensation: 'Compensation is restricted to the owner, CFO and accountant.',
   see_all_money: 'Company-wide balances are restricted.',
   move_money: 'Changing a financial figure is restricted to the owner and CFO.',

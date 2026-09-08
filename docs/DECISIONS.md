@@ -3127,6 +3127,195 @@ option landed in the same change.
 
 ---
 
+## 102. Paying people — the first feature that moves money
+
+Every feature before this one reads. The security model, the service-role usage
+and the audit trail were all designed on the assumption that nothing here could
+cause a payment, and that assumption ends with this decision.
+
+### Two facts, established by probing rather than by reading
+
+**There is no sandbox.** `sandbox-api.veem.com` serves an HTML sign-in page on
+every path. The first real send is against production money.
+
+**A 401 from `api.veem.com` does not prove an endpoint exists.** Under
+`/veem/v1.2/`, the gateway authenticates before routing — a deliberately fake
+path answers 401 exactly as a real one does. This corrected something I had
+asserted earlier: decision 94 said a 401 on the report endpoint "proved" it
+existed. It proved the host and the auth scheme, nothing more. The send contract
+comes from documentation, and is unproven until AHN runs it once.
+
+So the feature is built for something that cannot be rehearsed.
+
+### The rules, and why each one is where it is
+
+**Two people, enforced in Postgres.** A run is prepared by one member of finance
+and approved by a different one. The trigger refuses self-approval, so it holds
+whatever route asks — the same reasoning as decision 86's self-role guard. AHN
+currently has one person with the capability, which means **no payment can be
+sent today**. That is the intended cost of the rule, not an oversight.
+
+**A separate `disburse` capability.** `move_money` has meant "may edit financial
+records" since migration 0023: set a rate, fix a budget, reclassify a payment —
+all reversible by another edit. A payment is not. Reusing it would have granted
+disbursement to everybody who could already correct a typo, and the name would
+have stopped describing what it does.
+
+**Ceilings of $20,000 per payment and $200,000 per run.** Not a guess at AHN's
+payroll — a guard against the failure that actually happens, which is a units
+error. `toMinor` applied to an already-minor figure turns $4,800 into $480,000,
+and every other check still passes: the payee is real, the currency is right,
+the arithmetic is internally consistent. A ceiling is the only thing that
+catches an error of scale. The probe confirmed it fires.
+
+**The idempotency key is written before the call, never after.** Veem answers a
+reused `X-Request-Id` with 409, which is what makes a retry after a timeout
+safe — but only if the key survives the crash. It is a column default, set at
+row creation, and the send path never regenerates it.
+
+**The approved total is frozen and re-checked at the last moment.** Approving
+$40,000 and sending $60,000 because a line moved in between is the entire reason
+approval exists.
+
+**Dry run is the default, and `confirm` must be the literal string `"SEND"`.**
+Not a boolean: a stray default, a mistyped `true` or a replayed body with
+`confirm: 1` is not the word. Without it the route builds every payload, runs
+every check, and calls nothing — which is the only rehearsal available.
+
+**Each line is recorded the moment it returns**, before the next is attempted,
+so a crash halfway leaves an accurate record of who was paid. A request that
+throws is marked failed with its key untouched, and the message says plainly
+that the payment may or may not exist and Veem should be checked before retrying.
+
+### The privacy policy had to change in the same commit
+
+It said, in a published document: *"We do not move money. The system reads from
+financial providers; it cannot initiate a payment or a transfer."* True when
+written on 4 September, false hours later.
+
+I had flagged exactly this when publishing it. A policy that has drifted from
+the software is worse than none, because it is a written claim that is no longer
+true — so it now describes the payroll path, the two-person rule, and that only
+a name, an email and a country reach Veem. The file's own docstring records that
+it has already had to change once.
+
+### What is not built, and is not pretended to be
+
+This is **not payroll compliance**. It sends money. It does not withhold tax,
+file anything, or produce a W-2. Spec §7 lists US, Vietnam and Philippines
+payroll; this covers the disbursement half for contractors and overseas staff,
+which is what VEEM is for. US payroll with withholding still belongs in a
+payroll provider.
+
+---
+
+## 103. The five URLs Intuit asks for, and the sentence that was already false
+
+Intuit will not issue production keys until the app settings carry a host
+domain, a Launch URL, a Disconnect URL, a Connect/Reconnect URL, an EULA and a
+privacy policy. Four of those did not exist. The fifth did, and it was a
+problem.
+
+### The privacy policy had been making a promise the code did not keep
+
+`/privacy` said, and had said since the day it was published:
+
+> AHN can disconnect any linked account at any time from the Integrations page,
+> which revokes the stored token.
+
+There was no disconnect control on the Integrations page. There was no call to
+any revocation endpoint anywhere in the codebase. The sentence was written
+because it described what a system like this *ought* to do, and nobody checked
+it against what this one did.
+
+That is the second time this page has drifted — decision 102 caught "we do not
+move money" the day payroll landed. The difference is that this one was untrue
+from the moment it was written, and it is untrue **to a reviewer**: a privacy
+policy is a document a regulator's assessor reads and takes at face value.
+
+The fix was not to soften the sentence. `/api/integrations/[id]` now revokes at
+Intuit and deletes the stored tokens, and the Integrations page has the control
+the policy always claimed. `tests/app-urls.test.ts` fails if the claim and the
+code separate again.
+
+### Verifying the revoke endpoint, the way the VEEM check should have been done
+
+Decision 94 claimed a 401 from `api.veem.com` proved an endpoint existed. It did
+not, and I corrected that. So this time the check had a **control**:
+
+```
+POST https://developer.api.intuit.com/v2/oauth2/tokens/revoke   -> 400
+POST https://developer.api.intuit.com/v2/oauth2/tokens/notreal  -> 404
+```
+
+The 400 is the endpoint rejecting a deliberately malformed token; the 404 is the
+gateway rejecting a path. Two different answers to two different requests is
+what makes the first one evidence. One response on its own never was.
+
+Intuit's own Node client confirms the same URL, so the finding rests on the
+vendor's source and on a live probe that could distinguish a real path from a
+fake one.
+
+### The revoke happens BEFORE the local copy is cleared
+
+Clearing our token first and then failing to revoke would strand the grant
+permanently: live at Intuit, with nothing left here able to retry. So the order
+is revoke, confirm, then delete — and a failed revoke returns 502 with the
+connection left intact, which is the state a retry needs.
+
+A 400 from the revoke is treated as success. Intuit answers 400 for a token it
+does not recognise — already revoked, or expired after 101 days unused. The
+grant is gone, which is what the caller wanted; throwing there would leave a row
+nobody could ever disconnect.
+
+### The Disconnect URL deliberately disconnects nothing
+
+This is the decision most likely to look like an omission, so it is written down.
+
+Intuit reaches the Disconnect URL by an ordinary browser redirect. Nothing is
+signed, no shared secret is sent, and the URL is written in the app settings and
+in this repository. **If loading that page revoked the tokens, then any crawler,
+link preview, prefetch, or anybody who had ever seen the URL could sever AHN's
+accounting connection with a GET.** That is a denial-of-service control handed
+to the public, and "only Intuit knows to send people there" is not a security
+property.
+
+There is also nothing urgent to do. By the time anybody lands there, Intuit has
+already revoked the grant — that is the action that sent them. The stored copy
+is dead weight, not a live credential, and clearing it is housekeeping that can
+wait for somebody who is signed in.
+
+So `/disconnect` reports and does not write. The integration count on it is read
+only for a session holding `move_money`, so an anonymous visitor — which is what
+a stranger hitting a guessable URL is — learns nothing about AHN at all.
+
+### No Intuit SSO on the Launch URL
+
+Intuit's guidance for an app that is **not** listed on their App Store is that
+the Launch URL should be the app's sign-in page, and that is what `/launch`
+resolves to. AHN connects its own QuickBooks company; there is no listing.
+
+Signing somebody in because Intuit sent them would mean an Intuit account was
+enough to reach AHN's cash position. Arriving from QuickBooks decides *where you
+land*, never *whether you are let in*. If AHN ever publishes to the App Store,
+OpenID Connect SSO becomes a requirement and this has to be rewritten.
+
+### What the EULA does not pretend
+
+Every EULA template assumes a product being sold. This one says plainly that AHN
+is both the licensor and the only licensee, that there are no customers and no
+fee, and that the software is not endorsed by Intuit. Writing the template
+version would have been faster and would have been a false statement made to the
+reviewer whose job is to check exactly that.
+
+One value in it could not be derived from anything in the repository — the
+governing jurisdiction. It is a named constant at the top of the file with a
+comment saying so, rather than a sentence buried in section 15 that reads as
+though somebody confirmed it. **Nobody has. It needs a lawyer's eye before it is
+relied on**, and so does the document as a whole.
+
+---
+
 ## What was NOT changed
 
 The plan's week-1 boundary held. Subscription intelligence (spec §8) has since been

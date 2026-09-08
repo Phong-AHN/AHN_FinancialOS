@@ -14,7 +14,7 @@ type Mode = 'password' | 'magic';
  * remember a password, while a builder running the app locally should not have
  * to wait on an inbox.
  */
-export function LoginForm() {
+export function LoginForm({ next = '/' }: { next?: string }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('password');
   const [email, setEmail] = useState('');
@@ -33,7 +33,11 @@ export function LoginForm() {
       if (mode === 'magic') {
         const { error } = await supabase.auth.signInWithOtp({
           email,
-          options: { emailRedirectTo: `${window.location.origin}/api/auth/callback` },
+          options: {
+            // The callback launders `next` through `safeNextPath` before it
+            // redirects, so a tampered link cannot land somebody off-site.
+            emailRedirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(next)}`,
+          },
         });
         setMessage(
           error
@@ -45,7 +49,7 @@ export function LoginForm() {
         if (error) {
           setMessage({ ok: false, text: error.message });
         } else {
-          router.push('/');
+          router.push(next);
           router.refresh();
         }
       }

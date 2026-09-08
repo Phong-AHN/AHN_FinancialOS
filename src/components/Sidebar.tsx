@@ -34,6 +34,8 @@ const NAV: NavItem[] = [
   { href: '/budgets', label: 'Budgets', hint: 'Plan vs. actual, and the pace' },
   { href: '/simulator', label: 'Growth & margin', hint: 'Targets and scenarios', needs: 'see_all_money' },
   { href: '/people', label: 'People & time', hint: 'Rates and hours on projects', needs: 'manage_people' },
+  // The only page that causes money to leave. Owner and CFO only.
+  { href: '/payroll', label: 'Payroll', hint: 'Prepare, approve, send', needs: 'disburse' },
   // No `needs`: logging your own hours is the one thing every role can do,
   // and it is the only page an employee has any use for.
   { href: '/timesheet', label: 'My hours', hint: 'Log time against a project' },

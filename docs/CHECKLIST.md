@@ -3,7 +3,7 @@
 One page. [DONE.md](DONE.md) has the detail, [TODO.md](TODO.md) has what is left,
 [DECISIONS.md](DECISIONS.md) has the reasoning.
 
-_4 Sep 2026 · 17 pages · 35 API routes · 35 migrations · 575 tests · 101 decisions_
+_8 Sep 2026 · 25 pages (20 behind a login, 5 public) · 38 API routes · 37 migrations · 622 tests · 103 decisions_
 
 ---
 
@@ -41,6 +41,7 @@ _4 Sep 2026 · 17 pages · 35 API routes · 35 migrations · 575 tests · 101 de
 - [x] VietinBank iConnect — written, request shape proved against the bank
 - [x] Finverse — the aggregator fallback for Vietnamese banks
 - [x] VEEM — API connector; only `Complete` counts as cash, in-flight becomes a commitment
+- [x] **Payroll disbursement through VEEM** — two-person approval, ceilings, dry run by default
 - [ ] Google Workspace / SaaS vendor billing — needs per-vendor credentials
 
 ## Security & operations
@@ -54,6 +55,8 @@ _4 Sep 2026 · 17 pages · 35 API routes · 35 migrations · 575 tests · 101 de
 - [x] Deployment guide lists every variable the app reads — checked on every test run
 - [x] Railway worker: sync every 10 min, rates + digest + sweeps daily
 - [x] Region pinned beside the database; "today" resolves in Vietnam, not UTC
+- [x] Public **privacy policy** and **EULA**, plus Intuit's Launch / Disconnect / Connect URLs
+- [x] Disconnect revokes at Intuit **and** deletes the stored token — the policy said so, now it is true
 
 ---
 
@@ -68,6 +71,8 @@ _4 Sep 2026 · 17 pages · 35 API routes · 35 migrations · 575 tests · 101 de
 ## Waiting on you, not on code
 
 - 🔴 Plaid Production · QuickBooks production keys · 5 VietinBank values · VEEM keys
+- 🔴 Paste the six Intuit app URLs (all built and live) — [DEPLOYMENT.md](DEPLOYMENT.md#the-five-urls-intuit-asks-for)
+- 🟡 Confirm the EULA's governing jurisdiction, and have a lawyer read it
 - 🔴 Deploy to Vercel + Railway · rotate the two passwords typed into chat
 - 🟡 **0 projects, 0 people, 0 hours logged** — §12–§16 and §13 are built and have nothing to show. This is the biggest unlock.
 - 🟡 26 transactions uncategorised — 26% of 90-day spending

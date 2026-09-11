@@ -18,7 +18,7 @@
     "worker": "node worker/index.mjs"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.5.2",
+    "@supabase/ssr": "^0.12.6",
     "@supabase/supabase-js": "^2.45.4",
     "next": "^15.5.25",
     "papaparse": "^5.4.1",

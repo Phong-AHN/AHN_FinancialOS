@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     'Terms on which AHN staff and contractors are licensed to use the AHN Financial OS internal system.',
 };
 
-const UPDATED = '8 September 2026';
+const UPDATED = '11 September 2026';
 
 /**
  * CONFIRM BEFORE RELYING ON THIS.
@@ -82,8 +82,9 @@ export default function EulaPage() {
       <Section title="4. What you must not do">
         <ul>
           <li>
-            Share your login, password or session with anybody, or allow anybody else to act under
-            your account. Every action is recorded against the account that performed it.
+            Share your login, password, authenticator or session with anybody, or allow anybody
+            else to act under your account. Every action is recorded against the account that
+            performed it.
           </li>
           <li>
             Use the Software, or anything you see in it, for any purpose other than AHN&rsquo;s
@@ -114,6 +115,10 @@ export default function EulaPage() {
           under your account. Tell AHN immediately at{' '}
           <A href="mailto:team@asianhustlenetwork.com">team@asianhustlenetwork.com</A> if you
           believe your account has been used by somebody else.
+        </p>
+        <p>
+          Two-factor sign-in is mandatory. Keep the authenticator app on a device only you use; if
+          you lose it, contact support, who will confirm your identity before resetting it.
         </p>
         <p>
           Roles are enforced by the database rather than by the interface. Being able to reach a

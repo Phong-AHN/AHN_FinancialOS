@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   }
 
   const state = randomBytes(24).toString('base64url');
-  cookies().set(STATE_COOKIE, state, {
+  (await cookies()).set(STATE_COOKIE, state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',

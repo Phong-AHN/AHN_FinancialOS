@@ -59,7 +59,8 @@ const FIELDS: Array<{ key: keyof z.infer<typeof PatchSchema>; column: string; mo
   { key: 'labourBudgetMinor', column: 'labour_budget_minor', money: true },
 ];
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const crossOrigin = crossOriginRefusal(request);
   if (crossOrigin) return crossOrigin;
 

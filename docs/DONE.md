@@ -335,4 +335,4 @@ Three habits did most of the work, and each caught bugs nothing else did:
    a test now fails if the page and the code separate again — decision 103.
 
 The full reasoning, including the mistakes, is in
-[DECISIONS.md](DECISIONS.md) — 103 numbered entries.
+[DECISIONS.md](DECISIONS.md) — 110 numbered entries.

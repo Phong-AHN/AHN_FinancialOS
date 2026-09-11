@@ -32,7 +32,8 @@ export const dynamic = 'force-dynamic';
  * fixed list — a sponsorship shows up as whatever the ledger called it, not as
  * whatever a hardcoded taxonomy expected.
  */
-export default async function ProjectDetailPage({ params }: { params: { id: string } }) {
+export default async function ProjectDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const supabase = createSupabaseServerClient();
   const session = await requireSession();
   // Labour cost is compensation. The page asks for it explicitly rather than

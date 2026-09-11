@@ -11,7 +11,7 @@ import { A, LegalFooter, LegalPage, Section } from '@/components/legal';
  * the code: which providers are read, what is stored, what is encrypted and
  * how, and that there is no export path.
  *
- * IT HAS NOW HAD TO CHANGE TWICE, both times in the same direction — the page
+ * IT HAS NOW HAD TO CHANGE FOUR TIMES, each in the same direction — the page
  * claiming something the software did not do:
  *
  *   - It said "we do not move money", true when written and false the day
@@ -22,7 +22,17 @@ import { A, LegalFooter, LegalPage, Section } from '@/components/legal';
  *     control was built and the token really is revoked at Intuit — see
  *     `/api/integrations/[id]` (decision 103).
  *
- * The lesson both times: a privacy policy that has drifted from the software is
+ *   - Alerts had been sent through Slack, Resend and Twilio since week one,
+ *     carrying amounts and counterparties, while this page said "we do not
+ *     share it with third parties" and named none of them. Found while
+ *     answering Intuit's question about who can see a customer's data
+ *     (decision 109); the services are now named, with what they carry.
+ *   - Error logs arrived (decision 107) with a promise that they may be shared
+ *     with a provider's support. "We do not share it with third parties" was
+ *     about financial data and stays true, but a new kind of record that CAN
+ *     leave needed its own paragraph the same day, not later.
+ *
+ * The lesson every time: a privacy policy that has drifted from the software is
  * worse than none, because it is a written claim, made to a reviewer, that is
  * no longer true. Update it in the same change as the behaviour.
  */
@@ -32,7 +42,7 @@ export const metadata: Metadata = {
     'How AHN Media handles financial data in its internal financial operations system.',
 };
 
-const UPDATED = '8 September 2026';
+const UPDATED = '11 September 2026';
 
 export default function PrivacyPage() {
   return (
@@ -96,7 +106,10 @@ export default function PrivacyPage() {
 
       <Section title="What we never do">
         <ul>
-          <li>We do not sell data, and we do not share it with third parties.</li>
+          <li>
+            We do not sell data, and we do not share it with third parties — beyond the delivery
+            services, named below, that carry alerts to AHN&rsquo;s own staff.
+          </li>
           <li>We do not use it for advertising or marketing of any kind.</li>
           <li>
             We do not send payments to anyone who is not an AHN worker. The system pays our own
@@ -144,8 +157,53 @@ export default function PrivacyPage() {
             Every change to a financial record is written to an append-only audit trail recording
             who changed what, when, and from what to what.
           </li>
-          <li>All access requires an individual named login. Transport is HTTPS throughout.</li>
+          <li>
+            All access requires an individual named login <strong>and</strong> a code from an
+            authenticator app. Two-factor sign-in is mandatory for every account and is enforced by
+            the database itself: a password on its own reads nothing. Transport is HTTPS throughout.
+          </li>
         </ul>
+      </Section>
+
+      <Section title="Alerts">
+        <p>
+          When money moves, the system can send an alert. An alert carries what a person needs to
+          recognise the payment: the amount, the other party, the account and the resulting
+          balance. Alerts go <strong>only to destinations AHN configures for its own staff</strong>{' '}
+          — AHN&rsquo;s Slack workspace, AHN email addresses, and AHN staff phone numbers — through
+          these delivery services:
+        </p>
+        <ul>
+          <li>
+            <strong>Slack</strong> — messages to AHN&rsquo;s own workspace and channels.
+          </li>
+          <li>
+            <strong>Resend</strong> — email.
+          </li>
+          <li>
+            <strong>Twilio</strong> — text messages, which carry only a short summary.
+          </li>
+        </ul>
+        <p>
+          These services deliver the message; they are not given access to the system or to
+          anything beyond the alert itself. Data from a provider&rsquo;s test environment — a
+          QuickBooks sandbox company, for instance — never produces an alert.
+        </p>
+      </Section>
+
+      <Section title="Error records">
+        <p>
+          When a connected provider returns an error, the system keeps a record of it: the time,
+          what the system was doing, the provider&rsquo;s error code and, for QuickBooks, the
+          <code> intuit_tid </code>transaction id Intuit attaches to every response. These records
+          contain <strong>no financial data, passwords or tokens</strong> — anything shaped like a
+          credential is removed before a record is written.
+        </p>
+        <p>
+          They are visible to the people who manage integrations, cannot be edited, and may be
+          shared with <strong>that provider&rsquo;s own support team</strong> to resolve a problem
+          with that provider. That is the only sharing they are used for.
+        </p>
       </Section>
 
       <Section title="How long we keep it">

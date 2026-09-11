@@ -42,7 +42,10 @@ const nextConfig = {
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
-      `connect-src 'self' ${supabaseHost} https://*.supabase.co wss://*.supabase.co`.trim(),
+      // No `wss:`. The app opens no WebSocket — Supabase Realtime is never
+      // subscribed to — so allowing one was an open door nothing used. Closed
+      // when Intuit's review asked whether the app uses WebSockets (decision 109).
+      `connect-src 'self' ${supabaseHost} https://*.supabase.co`.trim(),
       "frame-ancestors 'none'",
       "form-action 'self'",
       "base-uri 'self'",

@@ -39,7 +39,17 @@ export type SourceSystem =
   | 'csv_payroll'
   | 'manual';
 export type IntegrationProvider = 'quickbooks' | 'plaid' | 'stripe' | 'finverse' | 'vietinbank' | 'veem';
-export type IntegrationStatus = 'disconnected' | 'connected' | 'error';
+/**
+ * `error` and `reauth_required` are not the same thing, and the difference
+ * decides what a person is told. `error` means the next sync will try again;
+ * `reauth_required` means it will not help, because the grant is gone and only
+ * the customer can restore it (migration 0038).
+ */
+export type IntegrationStatus =
+  | 'disconnected'
+  | 'connected'
+  | 'error'
+  | 'reauth_required';
 export type TxnDirection = 'inflow' | 'outflow';
 export type ReconStatus =
   | 'unreconciled'
@@ -100,6 +110,23 @@ export interface FinancialAccount {
   include_in_cash: boolean;
   is_active: boolean;
   created_at: string;
+}
+
+/**
+ * One provider failure, kept for troubleshooting (migration 0039). Mirrors the
+ * table column for column — `schema-drift.integration.test.ts` checks.
+ */
+export interface IntegrationErrorRow {
+  id: string;
+  integration_id: string | null;
+  provider: string;
+  occurred_at: string;
+  operation: string;
+  kind: string | null;
+  http_status: number | null;
+  fault_code: string | null;
+  intuit_tid: string | null;
+  message: string;
 }
 
 export interface Integration {
@@ -331,6 +358,12 @@ export interface SyncResult {
     settled: number;
     skipped: number;
   };
+  /** QuickBooks only: whether this ran on CDC or the full query path, and why. */
+  mode?: { path: 'cdc' | 'query'; reason: string };
+  /** Rows removed because the provider reports them deleted. */
+  deleted?: number;
+  /** Entities the customer's subscription does not include, skipped rather than failed. */
+  unavailable?: string[];
 }
 
 // ─── Projects and events (spec sections 12, 14, 15, 16) ─────────────────────

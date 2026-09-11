@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import crypto from 'node:crypto';
+import { twoFactorSession } from './helpers/two-factor';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /**
@@ -115,16 +116,9 @@ describe.skipIf(!ENABLED)('logging your own hours, as Postgres enforces it', () 
       .single();
     projectId = (project as { id: string }).id;
 
-    const session = await (
-      await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-        method: 'POST',
-        headers: {
-          apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({ email: EMAIL, password }),
-      })
-    ).json();
+    // Password AND authenticator. One factor reads nothing since migration 0040,
+      // and every denial below would pass without testing anything.
+      const session = await twoFactorSession(admin, EMAIL, password);
 
     employee = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,

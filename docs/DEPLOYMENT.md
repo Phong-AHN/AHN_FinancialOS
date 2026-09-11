@@ -202,6 +202,7 @@ if one is set) and paste them in exactly.
 | Disconnect URL | `APP/disconnect` | Where QuickBooks sends someone who has just disconnected the app from inside QuickBooks. A confirmation page — **it deliberately changes nothing**, see below. |
 | Connect / Reconnect URL | `APP/api/integrations/quickbooks/connect` | Starts the OAuth flow. Same route the Connect button uses. |
 | EULA link | `APP/eula` | End-User License Agreement. |
+| Support (if asked) | `APP/support` | How to reach the team, and what to include. Public. |
 | Privacy policy link | `APP/privacy` | Privacy policy. |
 
 And separately, under **Keys & OAuth**:
@@ -221,6 +222,152 @@ with a GET. There is also nothing urgent to do — by the time anybody lands
 there, Intuit has already revoked the grant at their end. Clearing AHN's stored
 copy is housekeeping, and it happens on the Integrations page, where a signed-in
 owner does it deliberately and the token is revoked at Intuit first.
+
+### Switching QuickBooks from the sandbox to the real company
+
+**Order matters.** Steps 3 and 4 must happen before step 6, and the application
+enforces it: the OAuth callback refuses to connect a second QuickBooks company
+while another is on record.
+
+Why: QuickBooks numbers every company's records from 1, and this system keys a
+transaction as `Purchase:123` with no company in the key. With the sandbox rows
+still held, the real company's `Purchase:123` would be skipped as a duplicate of
+the fake one and its bank accounts merged into the sandbox's — silently.
+
+1. **Deploy first.** Intuit does not accept `localhost` as a production redirect
+   URI, so the real company can only be connected through the deployed app, on
+   the domain entered as *Host domain* in the Intuit app settings. Commit and
+   push, then deploy (section 1 above).
+2. **Sign in to the deployed app** and set up your authenticator.
+3. **Disconnect the sandbox company** — Integrations → QuickBooks → Disconnect —
+   while the sandbox keys are still configured, so its grant is revoked at
+   Intuit.
+4. **Clear the sandbox data** (runs locally against the same database):
+   ```
+   node scripts/purge-quickbooks-sandbox.mjs --realm 9341457793093583            # shows what goes
+   node scripts/purge-quickbooks-sandbox.mjs --realm 9341457793093583 --confirm
+   ```
+   It removes the sandbox company's transactions, invoices, bills and accounts,
+   its integration row, and counterparties nothing refers to afterwards. It
+   refuses if the company is still connected or if a second company is on
+   record.
+5. **Switch the keys** — in Vercel *and* in `.env.local`:
+   | Variable | Value |
+   |---|---|
+   | `QBO_ENVIRONMENT` | `production` |
+   | `QBO_CLIENT_ID` / `QBO_CLIENT_SECRET` | Intuit portal → your app → **Production** → Keys & credentials |
+   | `QBO_REDIRECT_URI` | `https://<your domain>/api/integrations/quickbooks/callback` |
+   | `NEXT_PUBLIC_APP_URL` | `https://<your domain>` |
+
+   Register the same redirect URI under **Production** redirect URIs in the
+   Intuit portal — the sandbox list is separate. Redeploy: variables are read
+   when the server starts.
+
+   `.env.local` must change too. Local and deployed share one database; a
+   local "Sync now" with sandbox settings would send the production tokens to
+   the sandbox API, fail, and mark the real connection as needing reconnection.
+6. **Connect.** Integrations → Connect QuickBooks → sign in as a user who is an
+   **admin of the company's QuickBooks** → choose the company → Connect. The
+   first sync reads six months of history; transactions older than
+   `ALERT_MAX_AGE_DAYS` (3) are recorded without sending alerts.
+7. **Check it.** The QuickBooks card shows Connected and a count of real
+   transactions; *Recent provider errors* is empty; one account's balance on
+   `/accounts` matches QuickBooks; invoices and bills appear on `/obligations`.
+
+Until Plaid and Stripe are also on production keys, the cash figures mix real
+QuickBooks data with simulated bank and payment data.
+
+### Two-factor sign-in is mandatory
+
+Every account signs in with a password (or email link) **and** a six-digit code
+from an authenticator app. There is no opt-out.
+
+- **The first time anybody signs in after this ships — including the owner —
+  they are taken to set up an authenticator.** It takes about a minute: scan a
+  QR code with Google Authenticator, Microsoft Authenticator, 1Password or Authy,
+  and type the code it shows.
+- The rule is enforced by the database (migration 0040), not by the pages. A
+  password on its own reads nothing, through the app or straight through the
+  Supabase API.
+- The scheduler, the OAuth callback's writes and the Slack commands use their
+  own secrets and are unaffected. **Turn on two-factor for the Slack workspace
+  too** (Slack admin → Authentication): a Slack account that can run `/ahn cash`
+  is otherwise a way to read the cash position on one factor.
+
+**Somebody who loses their phone** is locked out until an administrator removes
+their authenticator:
+
+```
+node scripts/mfa-reset.mjs person@example.com            # shows what would go
+node scripts/mfa-reset.mjs person@example.com --confirm  # removes it
+```
+
+Confirm who is asking **out of band** first — a call to a number already on
+file, or in person. An email saying "I lost my phone" is exactly what somebody
+holding a phished password would send. The script writes an audit record. It
+does not end sessions already open; if an account may be compromised rather
+than locked out, also change its password in the Supabase dashboard.
+
+**The smoke test** can no longer sign in with a password alone:
+
+```
+npm run smoke -- --ephemeral http://localhost:3777
+```
+
+creates a temporary owner with its own authenticator, checks every page, and
+deletes it.
+
+### Vulnerability checks run on their own
+
+`.github/workflows/security.yml` runs `npm audit` on production dependencies
+(failing on high or critical), the typecheck and the full unit suite on every
+push, every pull request, and **every Monday** whether or not anything changed.
+`.github/dependabot.yml` opens update pull requests weekly. Neither needs a
+secret. Both start working once pushed to GitHub.
+
+### Answers to Intuit's behavioural questions
+
+The review form asks how the app behaves, not only what it connects to. These
+answers describe what the code does; `tests/retry.test.ts` and
+`tests/reauth.integration.test.ts` hold them to it.
+
+| Question | Answer |
+|---|---|
+| How does your app interact with Intuit product data? | **Reads only.** One call, a GET to `/v3/company/{realmId}/query`. Nothing writes or deletes. |
+| How often do you refresh access tokens? | **Only when they expire.** The stored expiry is checked first and the token reused if more than 60s of life remains — roughly hourly in practice, driven by a 10-minute sync against 1-hour tokens. |
+| Do you retry failed authorization requests? | **Yes, when retrying can work.** Three attempts with exponential backoff and full jitter for network faults, 429 and 5xx. A dead refresh token is **not** retried. |
+| Do you ask customers to reconnect after an auth error? | **Yes.** A permanent auth failure sets the connection to `reauth_required`, shows a reconnect prompt on the Integrations page, and sends a critical alert on every configured channel — once, not on every tick. |
+| Handles **expired access tokens**? | **Yes**, two ways. Proactively from the stored expiry with a 60s cushion; and reactively — a 401 forces one refresh and one retry, because Intuit can invalidate a token before its stated expiry. Both paths proved against the live Intuit API (`tests/reactive-refresh.integration.test.ts`). |
+| Handles **expired refresh tokens**? | **Yes.** Intuit's 100-day expiry returns `invalid_grant`, which is classified as a dead grant: `reauth_required`, reconnect prompt, one alert. Never retried. |
+| Handles **invalid grant** errors? | **Yes**, explicitly and by name. Verified against Intuit's live token endpoint in `tests/reauth.integration.test.ts`. |
+| Handles **CSRF** errors? | **Yes.** 192-bit `state` in an httpOnly, SameSite=Lax, 10-minute single-use cookie, compared in constant time. A callback with a missing, empty or mismatched `state` is refused before the code is exchanged. |
+| Relies on the **OAuth Playground** or other offline tools for tokens? | **No.** Every grant comes from the in-app authorization-code flow (`/api/integrations/quickbooks/connect` → Intuit consent → `/callback`), and is refreshed with the refresh token that flow issued. No token is read from an env var or pasted in. `tests/app-urls.test.ts` fails if one ever is. |
+| Ever had a **security breach** requiring notification? | **Yours to answer** — a fact about the company, not the code. Nothing in this system's history is a notifiable breach. Two passwords were typed into an AI chat during development; that is a credential exposure to rotate before submitting, not a breach of anybody's data. |
+| A **security team** that regularly assesses vulnerabilities? | **Yours to answer**, because it is a statement about people. What the code does on its own: a CI workflow runs `npm audit` (fails on high/critical), typecheck and the full test suite on every push and **every Monday**; Dependabot opens update PRs weekly; every permission is tested against the live database with two-factor sessions. Answer Yes only if somebody at AHN owns reading those results. |
+| Client ID / secret **stored securely**? | **Yes.** Environment variables only, never in source. `.env.local` and `.env.production` are git-ignored and have never been committed. Nothing secret is logged. Verified in the built output: none of the ten server-only secrets, `QBO_CLIENT_SECRET` included, appears anywhere in the 87 files sent to a browser. The client **ID** appears in the OAuth authorise URL by design. |
+| Uses **multi-factor authentication**? | **Yes — mandatory for every account.** Password or email link, then a TOTP code from an authenticator app. Enforced by the database (migration 0040): every table carries a restrictive policy requiring `aal2`, so a stolen password reads nothing even straight against the Supabase API. |
+| Uses **Captcha**? | **No.** Access is invite-only, mandatory two-factor stops a guessed or phished password from reaching data, and Supabase Auth rate-limits sign-in attempts. A captcha would add friction without closing a gap those leave open. |
+| Uses **WebSocket**? | **No.** Nothing subscribes to Supabase Realtime or opens a socket. The Content-Security-Policy no longer allows `wss:` at all, so none could be opened. |
+| Is Intuit data used by or shown to **anyone other than that customer**? | **No.** It is shown only to AHN's own staff, each with a named two-factor login, and each table is further restricted by role in the database. Alerts go only to AHN's own Slack workspace, email addresses and phone numbers, through Slack, Resend and Twilio as delivery services — named in the privacy policy. Nothing is sold, shared, or sent to any AI service. |
+| Which **QuickBooks Online versions**? | **Simple Start, Essentials, Plus and Advanced.** Every entity read exists in all four except Bill and BillPayment, which Simple Start lacks; those are skipped for a Simple Start company instead of failing its sync. Run against the live sandbox, which is **QuickBooks Online Plus**. |
+| Handles users **gaining or losing** version-specific features? | **Yes.** A feature the subscription lacks (Intuit code 5030) is classified as `unavailable`: skipped, not retried, not reported as a fault, and asked for again once a day — so a downgrade never breaks the sync and an upgrade is picked up within a day, with its history. Data already imported is kept either way. |
+| Uses **multicurrency / sales tax**? | **None of the above.** Sales tax is not read — cash is taken from `TotalAmt`, which already includes it. Amounts are stored in each row's own `CurrencyRef`, but no multicurrency QuickBooks company has been tested, and the form asks only for features "verified and thoroughly tested". Multicurrency cannot be switched off once enabled, so it was not enabled on the sandbox to find out. |
+| Uses **webhooks**? | **No.** CDC every 10 minutes covers the same need, and Intuit recommends CDC for staying in sync. A webhook would add a public, unauthenticated-until-verified POST endpoint to a finance system for a latency gain nobody here needs. |
+| Uses the **CDC operation**? | **Yes.** Every incremental sync. It is what catches deletions — a transaction deleted in QuickBooks is removed from the ledger, an invoice or bill deleted there is voided — which the old per-entity queries could not see. Verified against the live API: the response shape, and that CDC names every row exactly as the query path did, so switching paths imports nothing twice. |
+| **Why** CDC? | **Querying specific entities doesn't give me the information I need** — a query never returns a deleted object, so deletions could not be seen — **and Other:** *"Efficiency: one CDC request returns changes for all six entities we read, replacing one query per entity, so an incremental sync is two API calls in total. It also lets a sync that missed runs catch up on up to 29 days of changes without re-reading history."* Not "webhooks don't give me the information": they would, and saying otherwise is untrue. |
+| How often is CDC **polled**? | **Every 10 minutes**, two calls per poll (~290 a day per company). Set by `SYNC_INTERVAL_MINUTES`. Intuit's reference pattern is webhooks plus a periodic (e.g. nightly) CDC call; this app uses CDC alone, more often, because it has no webhook endpoint. |
+| Tested against API errors, **including syntax and validation**? | **Yes.** Against the live API: a query that does not parse (400, code 4000) and one naming a field that does not exist (400, code 4001) are both classified `rejected`, **sent once and never retried**, and logged with Intuit's detail. Auth, rate-limit, outage, edition (5030) and CSRF failures are tested too. `tests/qbo-errors.integration.test.ts`, `tests/retry.test.ts`. |
+| Captures **`intuit_tid`**? | **Yes**, from every QuickBooks response that is classified as an error — query, CDC, token and revoke. It is stored in the error log, appended to `last_error` on the Integrations card, and linked to a pre-filled support email. Verified: Intuit sends it on successes and on token-endpoint failures as well. |
+| Keeps **error logs** that can be shared? | **Yes.** Table `integration_errors` (migration 0039): time, operation, classification, HTTP status, Intuit fault code, `intuit_tid`, message. Credentials are redacted before a row is written; rows cannot be edited or deleted through the app. Shown on the Integrations page as "Recent provider errors". |
+| **Contact support** from within the app? | **Yes.** "Help & support" in the sidebar on every signed-in page, a Support link on the sign-in page, and a "Report this" link beside every logged error that opens an email with the `intuit_tid` filled in. `/support` is public, like the legal pages, so somebody locked out can still reach it. |
+| Which **API categories**? | **Accounting API** only. Scope `com.intuit.quickbooks.accounting`. Payroll is paid through VEEM and card payments through Stripe — neither touches Intuit's Payroll or Payments APIs. |
+| How often are the APIs **called per customer**? | **Daily.** In practice every 10 minutes (`SYNC_INTERVAL_MINUTES`). An incremental sync is **two calls** — one Account query and one CDC request — so roughly 290 a day for AHN's one company. A first sync, or one after a gap longer than 29 days, uses the full query path once. |
+
+**Why a dead token is not retried.** Intuit answers `400` both for
+`invalid_grant` (the refresh token is gone — the customer must reconnect) and
+for `invalid_client` (our own keys are wrong — reconnecting changes nothing).
+The body is read to tell them apart, because giving the same advice for both
+would send somebody to reauthorise over a wrong `QBO_CLIENT_SECRET`.
 
 **This is a private app, not an App Store listing.** AHN connects its own
 QuickBooks company, so no Intuit SSO is implemented on the Launch URL: arriving

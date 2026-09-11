@@ -22,7 +22,8 @@ const PatchSchema = z.object({
   severity: z.enum(['info', 'warning', 'critical', 'digest']).optional(),
 });
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const crossOrigin = crossOriginRefusal(request);
   if (crossOrigin) return crossOrigin;
 

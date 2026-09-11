@@ -8,19 +8,31 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { FinancialAccount, Integration, SyncResult } from '@/lib/types';
+import type { FinancialAccount, Integration, NormalizedTransaction, SyncResult } from '@/lib/types';
 import { addDays, today, type ISODate } from '@/lib/dates';
 import { ingestTransactions } from '@/lib/ingest';
 import { decryptSecret, encryptSecret } from '@/lib/crypto';
 import { parseAmountToMinor } from '@/lib/money';
 import {
+  CDC_ENTITIES,
+  createQboSession,
   fetchQboAccounts,
+  fetchQboChanges,
   fetchQboObligations,
   fetchQboTransactions,
-  getAccessToken,
+  nextUnavailable,
+  normaliseCashRow,
+  normaliseObligationRow,
+  planQboSync,
   qboConfigured,
+  type QboChangeSet,
+  type QboObligation,
+  type UnavailableMap,
 } from '@/lib/connectors/quickbooks';
 import { syncQboObligations } from '@/lib/obligations-sync';
+import { ProviderAuthError } from '@/lib/connectors/retry';
+import { notifyReconnectNeeded } from '@/lib/alerts/reconnect';
+import { recordIntegrationError } from '@/lib/integration-errors';
 import {
   fetchAccessToken,
   fetchAllPayments,
@@ -153,11 +165,72 @@ async function markSynced(
     .eq('id', integrationId);
 }
 
-async function markFailed(db: SupabaseClient, integrationId: string, message: string): Promise<void> {
+/**
+ * Record a failed sync, distinguishing the kind that fixes itself from the kind
+ * that never will.
+ *
+ * A `ProviderAuthError` carrying `reconnect` means the grant is gone: the
+ * customer disconnected from inside the provider, or the refresh token expired.
+ * Writing `status: 'error'` for that is what made a dead QuickBooks connection
+ * indistinguishable from a provider having a bad afternoon — and it retried,
+ * silently, every ten minutes, for as long as nobody looked.
+ *
+ * `advice` rather than `message` is stored for those, because `last_error` is
+ * rendered to a person on the Integrations page. "invalid_grant" is the
+ * accurate string and it tells them nothing they can act on.
+ */
+async function markFailed(
+  db: SupabaseClient,
+  integrationId: string,
+  message: string,
+  cause?: unknown,
+  provider = 'unknown',
+): Promise<void> {
+  const authError = cause instanceof ProviderAuthError ? cause : null;
+  const needsReconnect = authError?.needsReconnect ?? false;
+
+  // Kept before anything else can go wrong. `last_error` below is overwritten
+  // by the next failure and cleared by the next success; this row is not.
+  await recordIntegrationError(db, {
+    integrationId,
+    provider: authError?.provider ?? provider,
+    operation: 'sync',
+    error: cause ?? message,
+  });
+
+  // Read BEFORE the write. The alert must fire on the transition into
+  // "needs reconnecting", and once the status has been set there is no way left
+  // to tell a first detection from the 144th of the day — the condition repeats
+  // on every ten-minute tick until a person acts.
+  const { data: before } = await db
+    .from('integrations')
+    .select('status')
+    .eq('id', integrationId)
+    .maybeSingle();
+  const wasAlreadyFlagged =
+    (before as { status?: string } | null)?.status === 'reauth_required';
+
   await db
     .from('integrations')
-    .update({ status: 'error', last_error: message.slice(0, 500) })
+    .update({
+      status: needsReconnect ? 'reauth_required' : 'error',
+      // The tid goes on the card too, so whoever is looking at the page can
+      // quote it to Intuit without opening the log.
+      last_error: (
+        (authError?.advice ?? message) + (authError?.tid ? ` (intuit_tid ${authError.tid})` : '')
+      ).slice(0, 500),
+    })
     .eq('id', integrationId);
+
+  // Telling somebody to reconnect only on a page they may not open for a week
+  // is not telling them. The sync runs headless; without this, the first sign
+  // of a dead connection is stale figures nobody thought to question.
+  if (needsReconnect && !wasAlreadyFlagged) {
+    await notifyReconnectNeeded(db, {
+      provider: authError!.provider,
+      advice: authError!.advice,
+    });
+  }
 }
 
 // ─── QuickBooks ─────────────────────────────────────────────────────────────
@@ -179,12 +252,17 @@ export async function syncQuickBooks(
     if (!qboConfigured()) throw new Error('QuickBooks env vars are not set.');
     if (!integration.external_id) throw new Error('QuickBooks integration has no realmId.');
 
-    const accessToken = await getAccessToken(integration, async (tokens) => {
+    // Every QuickBooks call in this function goes through the session, so a
+    // 401 anywhere buys one forced refresh and one retry rather than becoming
+    // a "please reconnect" for a connection that only needed a new token.
+    const session = createQboSession(integration, async (tokens) => {
       await db.from('integrations').update(tokens).eq('id', integration.id);
     });
 
     const companyId = await ensureDefaultCompany(db);
-    const qboAccounts = await fetchQboAccounts(accessToken, integration.external_id);
+    const qboAccounts = await session.run((accessToken) =>
+      fetchQboAccounts(accessToken, integration.external_id!),
+    );
 
     const accountMap = new Map<string, string>();
     for (const acc of qboAccounts) {
@@ -218,18 +296,100 @@ export async function syncQuickBooks(
         })
       ).id;
 
-    const transactions = await fetchQboTransactions({
-      accessToken,
-      realmId: integration.external_id,
-      since: sinceFor(integration, asOf),
-      accountIdFor: (qboAccountId) =>
-        (qboAccountId ? accountMap.get(qboAccountId) : undefined) ?? fallbackId,
-    });
+    const realmId = integration.external_id!;
+    const accountIdFor = (qboAccountId: string | null) =>
+      (qboAccountId ? accountMap.get(qboAccountId) : undefined) ?? fallbackId;
+
+    /*
+     * CDC for incremental syncs, the full query path when in any doubt.
+     *
+     * The query path cannot see deletions and only reaches back seven days, so
+     * a purchase deleted in QuickBooks stayed in AHN's ledger and an old
+     * invoice corrected today was never picked up. CDC sees both, in one call
+     * instead of eight. `planQboSync` decides; its reasons are in the result.
+     */
+    const now = new Date();
+    const known = ((integration.metadata ?? {}) as { qbo_unavailable?: UnavailableMap })
+      .qbo_unavailable ?? {};
+    const plan = planQboSync({ lastSyncedAt: integration.last_synced_at, unavailable: known, now });
+    const refused: string[] = [];
+
+    let changes: QboChangeSet | null = null;
+    let reason = plan.reason;
+    if (plan.path === 'cdc' && plan.changedSince) {
+      try {
+        const set = await session.run((accessToken) =>
+          fetchQboChanges(
+            accessToken,
+            realmId,
+            CDC_ENTITIES.map((e) => e.entity).filter((e) => !plan.skip.includes(e)),
+            plan.changedSince!,
+          ),
+        );
+        // A change set that may be cut off is not trusted with the ledger.
+        if (set.truncated) reason = `CDC returned ${set.size} objects and may be cut off — full query instead`;
+        else changes = set;
+      } catch (err) {
+        // The subscription lost a feature since the last sync. The query path
+        // asks entity by entity and finds out which.
+        if (!(err instanceof ProviderAuthError && err.kind === 'unavailable')) throw err;
+        reason = 'the subscription no longer includes something CDC asked for — checking each entity';
+      }
+    }
+    result.mode = { path: changes ? 'cdc' : 'query', reason };
+
+    let transactions: NormalizedTransaction[];
+    const deletedTxnIds: string[] = [];
+    if (changes) {
+      transactions = [];
+      for (const { entity, direction, kind } of CDC_ENTITIES) {
+        if (kind !== 'cash') continue;
+        for (const row of changes.changed[entity] ?? []) {
+          const txn = normaliseCashRow(entity, direction, row, accountIdFor, asOf);
+          if (txn) transactions.push(txn);
+        }
+        for (const id of changes.deleted[entity] ?? []) deletedTxnIds.push(`${entity}:${id}`);
+      }
+    } else {
+      transactions = await session.run((accessToken) =>
+        fetchQboTransactions({
+          accessToken,
+          realmId,
+          since: sinceFor(integration, asOf),
+          accountIdFor,
+          skip: plan.skip,
+          unavailable: refused,
+        }),
+      );
+    }
 
     const ingest = await ingestTransactions(db, transactions, { asOf });
     result.inserted = ingest.inserted;
     result.skipped = ingest.duplicatesSkipped;
     if (ingest.errors.length) result.error = ingest.errors.join('; ');
+
+    // Deleted in QuickBooks, so deleted here — the same rule Plaid follows when
+    // a bank reverses a transaction. Leaving it would count cash that never
+    // moved. The audit log keeps the fact that it existed.
+    if (deletedTxnIds.length) {
+      const { error: deleteError } = await db
+        .from('transactions')
+        .delete()
+        .eq('source_system', 'quickbooks')
+        .in('external_txn_id', deletedTxnIds);
+      if (deleteError) {
+        const note = `deletions: ${deleteError.message}`;
+        result.error = result.error ? `${result.error}; ${note}` : note;
+        await recordIntegrationError(db, {
+          integrationId: integration.id,
+          provider: 'quickbooks',
+          operation: 'sync',
+          error: note,
+        });
+      } else {
+        result.deleted = deletedTxnIds.length;
+      }
+    }
 
     /*
      * Invoices and bills, in the same pass but not into the same table.
@@ -240,12 +400,42 @@ export async function syncQuickBooks(
      * trade. The error is reported; the rows already written stand.
      */
     try {
-      const owed = await fetchQboObligations({
-        accessToken,
-        realmId: integration.external_id,
-        since: sinceFor(integration, asOf),
-      });
+      let owed: QboObligation[];
+      const voided: string[] = [];
+      if (changes) {
+        owed = [];
+        for (const { entity, direction, kind } of CDC_ENTITIES) {
+          if (kind !== 'obligation') continue;
+          for (const row of changes.changed[entity] ?? []) {
+            const obligation = normaliseObligationRow(entity, direction, row);
+            if (obligation) owed.push(obligation);
+          }
+          for (const id of changes.deleted[entity] ?? []) voided.push(`${entity}:${id}`);
+        }
+      } else {
+        owed = await session.run((accessToken) =>
+          fetchQboObligations({
+            accessToken,
+            realmId,
+            since: sinceFor(integration, asOf),
+            skip: plan.skip,
+            unavailable: refused,
+          }),
+        );
+      }
       const written = await syncQboObligations(db, owed);
+
+      // An invoice or bill deleted in QuickBooks is voided, not deleted: the
+      // obligations table's own rule is "cancelled or written off; kept, never
+      // deleted" (migration 0019).
+      if (voided.length) {
+        const { error: voidError } = await db
+          .from('obligations')
+          .update({ status: 'void' })
+          .eq('source_system', 'quickbooks')
+          .in('external_id', voided);
+        if (voidError) throw new Error(`could not void deleted obligations: ${voidError.message}`);
+      }
       result.obligations = {
         inserted: written.inserted,
         updated: written.updated,
@@ -259,12 +449,25 @@ export async function syncQuickBooks(
     } catch (err) {
       const note = `obligations: ${err instanceof Error ? err.message : String(err)}`;
       result.error = result.error ? `${result.error}; ${note}` : note;
+      await recordIntegrationError(db, {
+        integrationId: integration.id,
+        provider: 'quickbooks',
+        operation: 'sync',
+        error: err,
+      });
     }
 
-    await markSynced(db, integration.id);
+    // What this subscription does not include, remembered so the next ten-minute
+    // tick does not ask again — and forgotten the moment it is answered.
+    const unavailable = nextUnavailable(known, plan.skip, refused, now);
+    if (Object.keys(unavailable).length) result.unavailable = Object.keys(unavailable);
+
+    await markSynced(db, integration.id, {
+      metadata: { ...(integration.metadata ?? {}), qbo_unavailable: unavailable },
+    });
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
-    await markFailed(db, integration.id, result.error);
+    await markFailed(db, integration.id, result.error, err, integration.provider);
   }
 
   return result;
@@ -341,7 +544,7 @@ export async function syncPlaid(
     await markSynced(db, integration.id, { last_cursor: sync.cursor });
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
-    await markFailed(db, integration.id, result.error);
+    await markFailed(db, integration.id, result.error, err, integration.provider);
   }
 
   return result;
@@ -388,7 +591,7 @@ export async function syncStripe(
     await markSynced(db, integration.id);
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err);
-    await markFailed(db, integration.id, result.error);
+    await markFailed(db, integration.id, result.error, err, integration.provider);
   }
 
   return result;
@@ -492,6 +695,12 @@ export async function syncFinverse(
       .from('integrations')
       .update({ status: 'error', last_error: result.error })
       .eq('id', integration.id);
+    await recordIntegrationError(db, {
+      integrationId: integration.id,
+      provider: integration.provider,
+      operation: 'sync',
+      error: err,
+    });
   }
 
   return result;
@@ -584,6 +793,12 @@ export async function syncVietinBank(
       .from('integrations')
       .update({ status: 'error', last_error: result.error })
       .eq('id', integration.id);
+    await recordIntegrationError(db, {
+      integrationId: integration.id,
+      provider: integration.provider,
+      operation: 'sync',
+      error: err,
+    });
   }
 
   return result;
@@ -741,6 +956,12 @@ export async function syncVeem(
       .from('integrations')
       .update({ status: 'error', last_error: result.error })
       .eq('id', integration.id);
+    await recordIntegrationError(db, {
+      integrationId: integration.id,
+      provider: integration.provider,
+      operation: 'sync',
+      error: err,
+    });
   }
 
   return result;

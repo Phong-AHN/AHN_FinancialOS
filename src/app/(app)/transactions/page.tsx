@@ -44,11 +44,11 @@ const SOURCE_OPTIONS: Array<[string, string]> = [
  * to link to "exactly the rows behind this figure" - and what makes that view
  * shareable in Slack.
  */
-export default async function TransactionsPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>;
+export default async function TransactionsPage(props: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  // Next 15: a Promise. Rebound under the old name so nothing below changes.
+  const searchParams = await props.searchParams;
   const supabase = createSupabaseServerClient();
 
   const page = Math.max(1, Number(str(searchParams.page) ?? '1') || 1);

@@ -33,11 +33,71 @@ export interface Session {
  * gets the first result. It does NOT cache across requests: a sign-out or a
  * role change is picked up by the very next navigation.
  */
+/**
+ * Where a signed-in person stands on two-factor authentication.
+ *
+ *   none       — not signed in at all
+ *   enroll     — signed in with a password or email link, and has NO
+ *                authenticator yet. MFA is mandatory, so they must set one up
+ *                before anything else.
+ *   challenge  — has an authenticator, and has not used it this session.
+ *   ok         — signed in with both factors (Supabase's `aal2`).
+ *
+ * WHY MANDATORY, FOR EVERYBODY. This system reads every bank account AHN has
+ * and can send payroll. A password alone — phished, reused, or typed into the
+ * wrong window — would otherwise be the whole of the protection around it.
+ * There is no role here whose data is harmless enough to leave on one factor.
+ *
+ * Pure, so every branch is tested without a network.
+ */
+export type Assurance = 'none' | 'enroll' | 'challenge' | 'ok';
+
+export function assuranceStep(current: string | null, next: string | null): Assurance {
+  if (current === 'aal2') return 'ok';
+  // A verified factor exists — Supabase says the session COULD be aal2.
+  if (next === 'aal2') return 'challenge';
+  return 'enroll';
+}
+
+/**
+ * The current session's step, memoised per request.
+ *
+ * This reads the `aal` claim from the session cookie without verifying it —
+ * which is fine, because it only decides WHERE to send somebody. It never
+ * decides what they may see: `getSession()` verifies the token against the
+ * Auth server, and the database refuses every table to a token that is not
+ * aal2 (migration 0040). A forged cookie claiming aal2 fails both.
+ */
+export const getAssurance = cache(async function getAssurance(): Promise<Assurance> {
+  if (!isSupabaseConfigured()) return 'none';
+  const supabase = createSupabaseServerClient();
+  const { data: local } = await supabase.auth.getSession();
+  if (!local.session) return 'none';
+  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  // Unreadable is treated as "not finished", never as "fine".
+  if (error || !data) return 'challenge';
+  return assuranceStep(data.currentLevel, data.nextLevel);
+});
+
+/** Where to send a signed-in person who has not finished two-factor. */
+export function mfaPathFor(step: Assurance, next?: string): string | null {
+  const q = next && next !== '/' ? `?next=${encodeURIComponent(next)}` : '';
+  if (step === 'enroll') return `/mfa/setup${q}`;
+  if (step === 'challenge') return `/mfa${q}`;
+  return null;
+}
+
 export const getSession = cache(async function getSession(): Promise<Session | null> {
   // No database configured means nobody can be signed in. Returning null here
   // makes every guarded route answer 401/redirect rather than throwing a 500 -
   // an unconfigured deployment should look locked, not broken.
   if (!isSupabaseConfigured()) return null;
+
+  // One factor is not a session. Every caller of this function — pages,
+  // routes, `sessionCan` — therefore sees a half-signed-in person as signed
+  // out, and none of them can forget to check. The database would refuse them
+  // anyway (migration 0040); this makes the application agree with it.
+  if ((await getAssurance()) !== 'ok') return null;
 
   const supabase = createSupabaseServerClient();
 
@@ -98,6 +158,11 @@ export const getSession = cache(async function getSession(): Promise<Session | n
 
 /** For pages: bounce to login when signed out. */
 export async function requireSession(): Promise<Session> {
+  // Somebody halfway through signing in belongs on the second-factor page, not
+  // back at the password form they have just filled in.
+  const mfaPath = mfaPathFor(await getAssurance());
+  if (mfaPath) redirect(mfaPath);
+
   const session = await getSession();
   if (!session) redirect('/login');
   return session;
@@ -135,6 +200,16 @@ export function sessionCan(session: Session | null, capability: Capability): boo
 export async function requireApiSession(
   options: { ownerOnly?: boolean; capability?: Capability } = {},
 ): Promise<{ session: Session } | { response: Response }> {
+  const step = await getAssurance();
+  if (step === 'enroll' || step === 'challenge') {
+    return {
+      response: Response.json(
+        { error: 'Two-factor verification is required.', mfa: step },
+        { status: 401 },
+      ),
+    };
+  }
+
   const session = await getSession();
   if (!session) {
     return {

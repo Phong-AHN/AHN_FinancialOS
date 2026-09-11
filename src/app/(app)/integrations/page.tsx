@@ -20,7 +20,7 @@ import { PlaidLinkButton } from '@/components/PlaidLinkButton';
 import { EnableStripeButton } from '@/components/EnableStripeButton';
 import { SyncButton } from '@/components/SyncButton';
 import { DisconnectButton } from '@/components/DisconnectButton';
-import type { Integration } from '@/lib/types';
+import type { Integration, IntegrationErrorRow } from '@/lib/types';
 import { Badge, Callout, Card, LinkButton, PageHeader, SectionHeader, buttonClass } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
@@ -60,11 +60,11 @@ const COUNTED_SOURCES: ReadonlyArray<ProviderMeta['key']> = [
  * (no self-serve API programme exists for them), which is why they appear here
  * as a CSV route rather than a connect button.
  */
-export default async function IntegrationsPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | undefined>;
+export default async function IntegrationsPage(props: {
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
+  // Next 15: a Promise. Rebound under the old name so nothing below changes.
+  const searchParams = await props.searchParams;
   // The owner check and the query start together. `requireOwner()` costs a
   // round trip to Tokyo, and gating the query behind it added that to every
   // load. A viewer who reaches here still gets redirected before anything
@@ -80,12 +80,17 @@ export default async function IntegrationsPage({
   // once. This used to pull up to 20,000 `source_system` values across the
   // wire and tally them in JavaScript - invisible at 135 transactions, a
   // whole table transfer on every page view once the ledger is real.
-  const [, integrationsRes, ...counts] = await Promise.all([
+  const [, integrationsRes, errorsRes, ...counts] = await Promise.all([
     requireOwner(),
     supabase
       .from('integrations')
       .select('id,provider,label,status,external_id,last_synced_at,last_error,created_at')
       .order('created_at'),
+    supabase
+      .from('integration_errors')
+      .select('id,provider,occurred_at,operation,kind,http_status,fault_code,intuit_tid,message')
+      .order('occurred_at', { ascending: false })
+      .limit(15),
     ...COUNTED_SOURCES.map((source) =>
       supabase
         .from('transactions')
@@ -98,6 +103,8 @@ export default async function IntegrationsPage({
   const integrations = (integrationsRes.data ?? []) as Array<
     Pick<Integration, 'id' | 'provider' | 'label' | 'status' | 'external_id' | 'last_synced_at' | 'last_error' | 'created_at'>
   >;
+
+  const recentErrors = (errorsRes.data ?? []) as IntegrationErrorRow[];
 
   const rowCounts = new Map<string, number>(
     COUNTED_SOURCES.map((source, i) => [source, counts[i]?.count ?? 0]),
@@ -208,7 +215,9 @@ export default async function IntegrationsPage({
                 <div className="max-w-[620px]">
                   <div className="flex items-center gap-2.5">
                     <h3 className="text-[15px] font-semibold">{provider.name}</h3>
-                    {connected.some((c) => c.status === 'connected') ? (
+                    {connected.some((c) => c.status === 'reauth_required') ? (
+                      <Badge tone="outflow">Reconnect needed</Badge>
+                    ) : connected.some((c) => c.status === 'connected') ? (
                       <Badge tone="inflow">Connected</Badge>
                     ) : connected.some((c) => c.status === 'error') ? (
                       <Badge tone="outflow">Error</Badge>
@@ -224,6 +233,20 @@ export default async function IntegrationsPage({
                     )}
                   </div>
                   <p className="faint mt-0.5 text-[11.5px] uppercase tracking-wide">{provider.role}</p>
+
+                  {/* The whole point of `reauth_required` existing as a status
+                      separate from `error`: this is the one failure a person
+                      can actually fix, so it says so instead of showing them a
+                      provider error message they can do nothing about. */}
+                  {connected.some((c) => c.status === 'reauth_required') && (
+                    <div className="mt-2">
+                      <Callout tone="outflow" title="This connection needs authorising again">
+                        Syncing has stopped and the figures on every page will not update until it
+                        is reconnected. Nothing already imported has been lost. Retrying will not
+                        help — only reconnecting will.
+                      </Callout>
+                    </div>
+                  )}
                   <p className="muted mt-2 text-[13px] leading-relaxed">{provider.detail}</p>
                   {provider.problems.length > 0 && (
                     <ul className="mt-2 space-y-1 text-[12px]" style={{ color: 'var(--warn)' }}>
@@ -347,6 +370,65 @@ export default async function IntegrationsPage({
           </p>
         </Card>
       </div>
+
+      {/* The error log (migration 0039). Shown with the intuit_tid and a link
+          that opens a support email with it filled in, because the tid is the
+          one thing Intuit's support can look a request up by, and nobody should
+          have to copy a 36-character id by hand to get help. */}
+      <Card className="mt-4">
+        <SectionHeader
+          title="Recent provider errors"
+          subtitle="Kept for troubleshooting — not overwritten by the next sync, and never edited."
+          action={
+            <LinkButton href="/support" variant="secondary">
+              Contact support
+            </LinkButton>
+          }
+        />
+        {errorsRes.error ? (
+          // An error loading the ERROR LOG must not render as "no errors" —
+          // that is decision 90's bug in the one place it would be most ironic.
+          <p className="text-[12.5px]" style={{ color: 'var(--outflow)' }}>
+            Could not load the error log: {errorsRes.error.message}
+          </p>
+        ) : recentErrors.length === 0 ? (
+          <p className="faint text-[12.5px]">No provider errors recorded.</p>
+        ) : (
+          <ul className="divide-y divide-[var(--line)]">
+            {recentErrors.map((e) => (
+              <li key={e.id} className="py-2.5 text-[12.5px]">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span>
+                    <strong>{e.provider}</strong> <span className="faint">· {e.operation}</span>
+                    {e.kind && <span className="faint"> · {e.kind}</span>}
+                    {e.http_status && (
+                      <span className="faint">
+                        {' '}
+                        · {e.http_status}
+                        {e.fault_code ? ` / code ${e.fault_code}` : ''}
+                      </span>
+                    )}
+                  </span>
+                  <span className="faint">{formatDateTime(e.occurred_at)}</span>
+                </div>
+                <p className="muted mt-1 break-words">{e.message}</p>
+                {e.intuit_tid && (
+                  <p className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="faint">intuit_tid</span>
+                    <code className="text-[11.5px]">{e.intuit_tid}</code>
+                    <Link
+                      href={`/support?tid=${encodeURIComponent(e.intuit_tid)}&provider=${encodeURIComponent(e.provider)}`}
+                      className="underline underline-offset-2"
+                    >
+                      Report this
+                    </Link>
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <Card className="mt-4">
         <SectionHeader title="After changing credentials" />

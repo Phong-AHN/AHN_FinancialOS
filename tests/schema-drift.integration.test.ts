@@ -44,6 +44,8 @@ const MIRRORS: Record<string, string> = {
   ManualImport: 'manual_imports',
   ExchangeRate: 'exchange_rates',
   ObligationRow: 'obligations',
+  IntegrationErrorRow: 'integration_errors',
+  SavedScenario: 'scenarios',
 };
 
 /**
@@ -72,6 +74,15 @@ const TYPED_IN_THE_CALC_LAYER = [
   'time_entries',
   // A view, not a table: names for the timesheet picker, no money (migration 0029).
   'projects_for_time',
+  // Migration 0035. Read by `data.ts` for the budget roll-up and written by
+  // /api/departments through a zod schema — the shape lives there.
+  'departments',
+  // Migrations 0036-0037. Shaped where they are used: `payroll/guards.ts` for
+  // the lines being checked, the payroll routes for what is written. Money that
+  // LEAVES is kept out of the shared types on purpose, so nothing imports a
+  // payment shape by accident.
+  'payroll_runs',
+  'payroll_payments',
 ];
 
 function interfaceFields(source: string, name: string): string[] | null {

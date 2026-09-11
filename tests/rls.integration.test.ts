@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { totp } from './helpers/totp';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /**
@@ -25,6 +26,11 @@ const ENABLED =
       process.env.SUPABASE_SERVICE_ROLE_KEY &&
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
       process.env.VIEWER_EMAIL &&
+      // The viewer's OWN authenticator secret. Since migration 0040 a password
+      // alone reads nothing, and "the viewer cannot see payroll" would pass
+      // for the wrong reason. This account may belong to a real person, so the
+      // suite uses their factor rather than enrolling or deleting one.
+      process.env.VIEWER_TOTP_SECRET &&
       process.env.VIEWER_PASSWORD,
   );
 
@@ -73,6 +79,15 @@ describe.skipIf(!ENABLED)('Row Level Security, as a real viewer', () => {
       password: process.env.VIEWER_PASSWORD!,
     });
     if (signIn) throw new Error(`viewer sign-in failed: ${signIn.message}`);
+
+    const { data: factors } = await viewer.auth.mfa.listFactors();
+    const factorId = factors?.totp?.[0]?.id;
+    if (!factorId) throw new Error('the viewer account has no authenticator — set one up in the app first');
+    const { error: mfaError } = await viewer.auth.mfa.challengeAndVerify({
+      factorId,
+      code: totp(process.env.VIEWER_TOTP_SECRET!),
+    });
+    if (mfaError) throw new Error(`viewer second factor failed: ${mfaError.message}`);
   }, 30_000);
 
   afterAll(async () => {

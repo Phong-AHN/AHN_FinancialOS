@@ -106,11 +106,19 @@ export function Sidebar({
         </p>
         <div className="mt-1 flex items-center justify-between">
           <span className="faint text-[11px]">{ROLE_LABELS[role]}</span>
-          <form action="/api/auth/signout" method="post">
-            <button type="submit" className="faint text-[11px] underline underline-offset-2">
-              Sign out
-            </button>
-          </form>
+          <span className="flex items-center gap-3">
+            {/* Support from inside the app, on every page — Intuit's review
+                asks for exactly this, and a person with a broken connection
+                should not have to hunt for who to ask. */}
+            <Link href="/support" className="faint text-[11px] underline underline-offset-2">
+              Help &amp; support
+            </Link>
+            <form action="/api/auth/signout" method="post">
+              <button type="submit" className="faint text-[11px] underline underline-offset-2">
+                Sign out
+              </button>
+            </form>
+          </span>
         </div>
       </div>
     </aside>

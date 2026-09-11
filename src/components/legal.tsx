@@ -80,13 +80,14 @@ export function LegalFooter({ current }: { current: 'privacy' | 'eula' }) {
     <p className="faint" style={{ marginTop: 40, fontSize: 12 }}>
       {current === 'privacy' ? (
         <>
-          See also the <A href="/eula">End-User License Agreement</A>. This page describes how the
-          system actually behaves. If the system changes, this page is updated with it.
+          See also the <A href="/eula">End-User License Agreement</A> and{' '}
+          <A href="/support">Support</A>. This page describes how the system actually behaves. If
+          the system changes, this page is updated with it.
         </>
       ) : (
         <>
           See also the <A href="/privacy">Privacy Policy</A>, which describes what this system
-          reads, stores and encrypts.
+          reads, stores and encrypts, and <A href="/support">Support</A>.
         </>
       )}
     </p>

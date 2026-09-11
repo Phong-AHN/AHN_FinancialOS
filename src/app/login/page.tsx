@@ -1,18 +1,18 @@
 import { redirect } from 'next/navigation';
 import { LoginForm } from '@/components/LoginForm';
 import { AuthHashHandler } from '@/components/AuthHashHandler';
-import { getSession } from '@/lib/auth';
+import { getAssurance, getSession, mfaPathFor } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase/server';
 import { SetupRequired } from '@/components/SetupRequired';
 import { safeNextPath } from '@/lib/security';
 
 export const dynamic = 'force-dynamic';
 
-export default async function LoginPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | undefined>;
+export default async function LoginPage(props: {
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
+  // Next 15: a Promise. Rebound under the old name so nothing below changes.
+  const searchParams = await props.searchParams;
   if (!isSupabaseConfigured()) return <SetupRequired />;
 
   // Where to land after signing in. Somebody arriving from the QuickBooks app
@@ -24,6 +24,11 @@ export default async function LoginPage({
   // in with it, and the value has to be laundered through `safeNextPath`
   // either way.
   const next = safeNextPath(searchParams.next, '/');
+
+  // Halfway signed in — a password or email link, no second factor yet. The
+  // form they would see here is the one they have just completed.
+  const mfaPath = mfaPathFor(await getAssurance(), next);
+  if (mfaPath) redirect(mfaPath);
 
   const session = await getSession();
   if (session) redirect(next);
@@ -64,6 +69,12 @@ export default async function LoginPage({
           {' · '}
           <a href="/eula" className="underline underline-offset-2">
             Terms of use
+          </a>
+          {' · '}
+          {/* The person least able to reach support from inside the app is the
+              one who cannot sign in. */}
+          <a href="/support" className="underline underline-offset-2">
+            Support
           </a>
         </p>
       </div>

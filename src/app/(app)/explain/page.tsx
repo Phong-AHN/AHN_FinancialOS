@@ -29,11 +29,11 @@ export const dynamic = 'force-dynamic';
  * one: where the cash went, who moved, and which payments are unusual for the
  * vendor that made them.
  */
-export default async function ExplainPage({
-  searchParams,
-}: {
-  searchParams: { days?: string };
+export default async function ExplainPage(props: {
+  searchParams: Promise<{ days?: string }>;
 }) {
+  // Next 15: a Promise. Rebound under the old name so nothing below changes.
+  const searchParams = await props.searchParams;
   const windowDays = pickWindow(searchParams.days);
   const supabase = createSupabaseServerClient();
   const [, board] = await Promise.all([

@@ -29,7 +29,8 @@ export const dynamic = 'force-dynamic';
  * So this page shows not just the normalised row but the raw payload the source
  * system actually sent, the alerts it triggered, and every hand edit made to it.
  */
-export default async function TransactionDetailPage({ params }: { params: { id: string } }) {
+export default async function TransactionDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await requireSession();
   const supabase = createSupabaseServerClient();
 

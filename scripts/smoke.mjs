@@ -2,11 +2,20 @@
 /**
  * Authenticated page smoke test.
  *
- *   npm run smoke -- you@example.com 'your-password'
- *   npm run smoke -- you@example.com 'your-password' https://your-app.vercel.app
+ *   npm run smoke -- --ephemeral [base-url]
+ *   npm run smoke -- you@example.com 'your-password' --totp <base32-secret> [base-url]
  *
- * Signs in through Supabase's password grant, builds the session cookie that
- * @supabase/ssr expects, and fetches every page as a signed-in owner.
+ * Every account needs two factors (migration 0040), so a password alone now
+ * reads an empty application. Two ways in:
+ *
+ *   --ephemeral  creates a throwaway OWNER, gives it an authenticator whose
+ *                secret only this process knows, runs, and deletes it. Nobody's
+ *                real account is signed in to. Needs the service-role key from
+ *                .env.local. This is the one to use.
+ *   --totp       your own account and your own authenticator secret, for
+ *                checking a deployment as yourself.
+ *
+ * Builds the session cookie that @supabase/ssr expects and fetches every page.
  *
  * WHY THIS EXISTS SEPARATELY FROM THE TEST SUITE
  *
@@ -32,27 +41,117 @@ const url = env.NEXT_PUBLIC_SUPABASE_URL;
 const anon = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const ref = new URL(url).hostname.split('.')[0];
 
-const [, , email, password, baseArg] = process.argv;
+import crypto from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
+
+const args = process.argv.slice(2);
+const flag = (name) => {
+  const i = args.indexOf(name);
+  if (i === -1) return null;
+  const v = args[i + 1];
+  args.splice(i, 2);
+  return v;
+};
+const ephemeral = args.includes('--ephemeral');
+if (ephemeral) args.splice(args.indexOf('--ephemeral'), 1);
+const totpSecret = flag('--totp');
+const [email, password, baseArg] = ephemeral ? [null, null, args[0]] : args;
 const base = (baseArg ?? 'http://localhost:3000').replace(/\/$/, '');
 
-if (!email || !password) {
+if (!ephemeral && (!email || !password || !totpSecret)) {
   console.error(
-    ['', '  Usage: npm run smoke -- <email> <password> [base-url]', ''].join('\n'),
+    [
+      '',
+      '  Usage: npm run smoke -- --ephemeral [base-url]',
+      "     or: npm run smoke -- <email> <password> --totp <base32-secret> [base-url]",
+      '',
+      '  Every account needs two factors now, so a password alone is not enough.',
+      '',
+    ].join('\n'),
   );
   process.exit(1);
 }
 
-const res = await fetch(`${url}/auth/v1/token?grant_type=password`, {
-  method: 'POST',
-  headers: { apikey: anon, 'content-type': 'application/json' },
-  body: JSON.stringify({ email, password }),
-});
-const session = await res.json();
-if (!res.ok || !session.access_token) {
-  console.error('sign-in failed:', JSON.stringify(session).slice(0, 200));
-  process.exit(1);
+/** RFC 6238 — the code an authenticator app would show. */
+function totp(secret, at = Date.now()) {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const c of secret.replace(/=+$/, '').replace(/\s/g, '').toUpperCase()) bits += A.indexOf(c).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 30000)));
+  const h = crypto.createHmac('sha1', key).update(counter).digest();
+  const o = h[h.length - 1] & 0xf;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
 }
-console.log(`signed in as ${session.user.email}\n`);
+
+const admin = ephemeral
+  ? createClient(url, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
+  : null;
+let tempAuthId = null;
+let tempAppUserId = null;
+
+/** Removes the throwaway owner. Called on every way out of this script. */
+async function cleanup() {
+  if (!admin) return;
+  if (tempAppUserId) await admin.from('users').delete().eq('id', tempAppUserId);
+  if (tempAuthId) await admin.auth.admin.deleteUser(tempAuthId);
+  tempAuthId = tempAppUserId = null;
+}
+const exit = async (code) => {
+  await cleanup();
+  process.exit(code);
+};
+
+let session;
+try {
+  const client = createClient(url, anon, { auth: { persistSession: false } });
+  let signInEmail = email;
+  let signInPassword = password;
+
+  if (ephemeral) {
+    signInEmail = `smoke-${Date.now()}@probe.invalid`;
+    signInPassword = crypto.randomBytes(18).toString('base64url');
+    const { data, error } = await admin.auth.admin.createUser({
+      email: signInEmail,
+      password: signInPassword,
+      email_confirm: true,
+    });
+    if (error) throw error;
+    tempAuthId = data.user.id;
+    const { data: row, error: rowError } = await admin
+      .from('users')
+      .insert({ email: signInEmail, role: 'owner', auth_id: tempAuthId, full_name: 'SMOKE (temporary)' })
+      .select('id')
+      .single();
+    if (rowError) throw rowError;
+    tempAppUserId = row.id;
+  }
+
+  const { error: signError } = await client.auth.signInWithPassword({ email: signInEmail, password: signInPassword });
+  if (signError) throw signError;
+
+  let factorId;
+  let secret = totpSecret;
+  if (ephemeral) {
+    const { data: factor, error } = await client.auth.mfa.enroll({ factorType: 'totp', friendlyName: 'smoke' });
+    if (error) throw error;
+    factorId = factor.id;
+    secret = factor.totp.secret;
+  } else {
+    const { data } = await client.auth.mfa.listFactors();
+    factorId = data?.totp?.[0]?.id;
+    if (!factorId) throw new Error('this account has no verified authenticator — set one up in the app first');
+  }
+  const { error: verifyError } = await client.auth.mfa.challengeAndVerify({ factorId, code: totp(secret) });
+  if (verifyError) throw verifyError;
+
+  session = (await client.auth.getSession()).data.session;
+} catch (err) {
+  console.error('sign-in failed:', err.message ?? err);
+  await exit(1);
+}
+console.log(`signed in with two factors as ${session.user.email}${ephemeral ? ' (temporary owner)' : ''}\n`);
 
 // @supabase/ssr stores the session as base64-encoded JSON, chunked at 3180 chars.
 const payload = 'base64-' + Buffer.from(JSON.stringify(session)).toString('base64');
@@ -85,7 +184,7 @@ const pages = [
   ['/people', ['People', 'Costing basis', 'Log hours']],
   ['/subscriptions', ['Recurring charges', 'Monthly recurring', 'Every recurring charge']],
   ['/alerts', ['Rules', 'End-to-end test', 'Delivery log']],
-  ['/integrations', ['QuickBooks', 'Plaid', 'Stripe']],
+  ['/integrations', ['QuickBooks', 'Plaid', 'Stripe', 'Recent provider errors']],
   ['/import', ['Import a statement']],
   ['/payroll', ['Payroll']],
   ['/timesheet', ['My hours']],
@@ -105,6 +204,7 @@ const publicPages = [
   ['/privacy', ['Privacy Policy', 'QuickBooks Online (Intuit)', 'Plaid']],
   ['/eula', ['End-User License Agreement', 'Governing law', 'not produced, endorsed']],
   ['/disconnect', ['QuickBooks has been disconnected']],
+  ['/support', ['Support', 'intuit_tid', 'team@asianhustlenetwork.com']],
 ];
 
 let failures = 0;
@@ -123,7 +223,7 @@ for (const [path, expects] of pages) {
     console.log(`FAIL  ${path.padEnd(16)} ${reason}`);
     if (reason === 'connection refused') {
       console.error(`  Nothing is listening on ${base}. Start it with "npm run start".`);
-      process.exit(1);
+      await exit(1);
     }
     continue;
   }
@@ -193,4 +293,4 @@ if (failures) {
   console.log('  Every page rendered for a signed-in owner.');
 }
 console.log('');
-process.exit(failures ? 1 : 0);
+await exit(failures ? 1 : 0);

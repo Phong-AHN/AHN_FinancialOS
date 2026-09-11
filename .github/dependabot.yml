@@ -1,0 +1,30 @@
+# Dependency updates, weekly.
+#
+# Next.js 14 reached this project carrying 23 published advisories, two of them
+# critical remote-code-execution bugs, and nothing here was watching (decision
+# 108). Dependabot opens a pull request when a dependency has a fix; the
+# security workflow below fails when one has a known high or critical issue.
+# Together they turn "check for vulnerabilities" from something somebody
+# remembers into something that happens.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Framework and runtime move together; one PR for the set, so a
+      # half-upgraded React/Next pair never lands.
+      framework:
+        patterns: ['next', 'react', 'react-dom', '@types/react', '@types/react-dom']
+      supabase:
+        patterns: ['@supabase/*']
+    labels: ['dependencies']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    labels: ['dependencies']

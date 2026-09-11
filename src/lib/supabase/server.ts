@@ -11,24 +11,28 @@ import { noStoreFetch } from '@/lib/supabase/no-store-fetch';
  * the admin client, which bypasses RLS.
  */
 export function createSupabaseServerClient() {
-  const cookieStore = cookies();
+  // Next 15 made `cookies()` asynchronous. The adapter methods await it
+  // themselves — @supabase/ssr accepts async get/set/remove — so this factory
+  // stays synchronous and none of its dozens of callers had to change. The
+  // alternative, an async factory, would have touched every page and route to
+  // ship a security upgrade, which is the wrong trade for a framework bump.
   return createServerClient(requiredEnv('NEXT_PUBLIC_SUPABASE_URL'), requiredEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'), {
     global: { fetch: noStoreFetch },
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
+      async get(name: string) {
+        return (await cookies()).get(name)?.value;
       },
-      set(name: string, value: string, options: CookieOptions) {
+      async set(name: string, value: string, options: CookieOptions) {
         try {
-          cookieStore.set({ name, value, ...options });
+          (await cookies()).set({ name, value, ...options });
         } catch {
           // Server Components cannot set cookies; middleware refreshes the
           // session instead. Swallowing here is the documented pattern.
         }
       },
-      remove(name: string, options: CookieOptions) {
+      async remove(name: string, options: CookieOptions) {
         try {
-          cookieStore.set({ name, value: '', ...options, maxAge: 0 });
+          (await cookies()).set({ name, value: '', ...options, maxAge: 0 });
         } catch {
           /* see above */
         }

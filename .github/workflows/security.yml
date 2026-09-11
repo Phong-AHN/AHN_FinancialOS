@@ -1,0 +1,48 @@
+# Vulnerability and regression checks — on every push, every pull request, and
+# every Monday whether or not anything changed.
+#
+# The weekly run is the point. A dependency that was clean when it was installed
+# gets an advisory six months later with no commit to trigger anything; that is
+# exactly how this project came to be running Next.js with two critical RCEs.
+#
+# No secrets are needed: every integration suite skips itself without
+# credentials (tests/setup-env.ts), so this runs the full unit suite against the
+# code alone. Verified by running it locally with .env.local moved aside.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: dependencies, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Production dependencies only: a dev-only advisory in a test tool does
+      # not reach anybody's browser or the server. High and critical fail the
+      # build; moderate and low are reported in the log without blocking.
+      - name: npm audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      - name: unit tests
+        run: npx vitest run

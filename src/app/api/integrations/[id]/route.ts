@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { recordAudit } from '@/lib/audit';
 import { decryptSecret } from '@/lib/crypto';
 import { revokeTokens } from '@/lib/connectors/quickbooks';
+import { recordIntegrationError } from '@/lib/integration-errors';
 import type { Integration } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -31,8 +32,9 @@ export const dynamic = 'force-dynamic';
  */
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } },
+  props: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  const params = await props.params;
   const crossOrigin = crossOriginRefusal(request);
   if (crossOrigin) return crossOrigin;
 
@@ -60,6 +62,12 @@ export async function DELETE(
       await revokeTokens(decryptSecret(integration.refresh_token_enc));
       revoked = 'revoked at Intuit';
     } catch (err) {
+      await recordIntegrationError(db, {
+        integrationId: integration.id,
+        provider: 'quickbooks',
+        operation: 'disconnect',
+        error: err,
+      });
       // Stop here and keep the token. A failed revoke that still wiped our copy
       // would report success while leaving the grant live forever.
       return Response.json(

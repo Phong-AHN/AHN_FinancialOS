@@ -44,11 +44,11 @@ function pickDimension(raw: string | undefined): RollupDimension {
   return DIMENSIONS.find((d) => d.key === raw)?.key ?? 'business_unit';
 }
 
-export default async function ProjectsPage({
-  searchParams,
-}: {
-  searchParams: { by?: string };
+export default async function ProjectsPage(props: {
+  searchParams: Promise<{ by?: string }>;
 }) {
+  // Next 15: a Promise. Rebound under the old name so nothing below changes.
+  const searchParams = await props.searchParams;
   const dimension = pickDimension(searchParams.by);
   const supabase = createSupabaseServerClient();
   const session = await requireSession();

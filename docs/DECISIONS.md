@@ -3316,6 +3316,548 @@ relied on**, and so does the document as a whole.
 
 ---
 
+## 104. Retrying what is worth retrying, and asking for a reconnect when it is not
+
+Intuit's review asks two questions that sound like one: does the app retry
+failed authorisation requests, and does it ask the customer to reconnect when
+authorisation fails. They are opposite responses to failures that used to be
+indistinguishable here.
+
+### Every failure was the same failure
+
+`syncQuickBooks` wrapped everything in one `try`, and the `catch` wrote
+`status: 'error'` with whatever message came out. So:
+
+- A one-second network blip lost ten minutes of data and was never retried.
+- A **permanently revoked refresh token** produced a sync that failed silently
+  every ten minutes, forever, until somebody happened to open the Integrations
+  page. Nothing told anybody to reconnect, because nothing in the system could
+  work out that reconnecting was the answer.
+
+The second is the dangerous one. The dashboard keeps rendering. The figures keep
+looking like figures. They are just frozen at whatever the last successful pull
+returned — and stale financials that look current are worse than an obvious
+outage, because decisions get made on them.
+
+### Three outcomes, because two would give bad advice
+
+```
+transient      retry with backoff        network, 429, 5xx
+reconnect      the grant is gone         invalid_grant, 401 on a fresh token
+configuration  our own keys are wrong    invalid_client, 403
+```
+
+Collapsing the last two is the tempting simplification and it produces the worst
+possible instruction: *telling somebody to reconnect when the actual problem is
+that `QBO_CLIENT_SECRET` is wrong*. They would authorise, watch it fail, and
+have learned nothing.
+
+**The status code alone cannot make this distinction.** Intuit answers **400**
+both for `invalid_grant` and for `invalid_client`. The body is the only thing
+that separates them, so the body is what is read.
+
+### The retry budget is deliberately small
+
+Three attempts, full jitter, no retry at all for a non-transient failure.
+
+The scheduler already runs every ten minutes — a genuine Intuit outage is
+retried 144 times a day without any help from inside a single tick. Retrying
+hard *within* a tick buys nothing against a real outage and looks, from Intuit's
+side, exactly like an app with a runaway loop. And retrying a refresh token they
+have already told us is dead is precisely the behaviour the question on their
+form exists to catch.
+
+Jitter rather than a fixed doubling, because every integration is woken by the
+same scheduler tick. A fixed backoff means they all retry at the same instant,
+turning one provider hiccup into a self-inflicted burst against a rate limit.
+
+### The alert fires once, and the guard had to be moved to make that true
+
+A dead connection repeats on every tick. An alert that fires 144 times a day is
+an alert everybody learns to ignore, which loses the one that mattered in the
+noise it created.
+
+The first version of `notifyReconnectNeeded` checked the integration's status
+and returned early if it was already `reauth_required` — but `markFailed` sets
+that status *before* calling it, so the check was always true and the
+notification would have **never been sent at all**. The status is now read
+before the write, and the transition is what triggers the alert. Caught by
+reading the order of the two statements, not by a test; the test came after.
+
+### Proved against Intuit, not against a mock
+
+`tests/reauth.integration.test.ts` creates a throwaway integration holding a
+deliberately invalid refresh token and syncs it. Intuit really is asked, really
+answers `invalid_grant`, and the assertions are about what this system does
+next. It is the only test that proves the classification matches what Intuit
+sends rather than what I assumed it sends.
+
+It never touches AHN's live connection — that has its own `external_id` and
+exercising the success path against it would end a working session for the sake
+of a test. And it deletes every channel credential from `process.env` before it
+runs, then asserts `channelConfigured` reports false for all three, so the
+fan-out is exercised and nobody's phone rings. A probe that did not think about
+this once sent twelve real Slack messages (decision 96).
+
+### What is stored is what a person can act on
+
+`last_error` is rendered on the Integrations page. `invalid_grant` is the
+accurate string and it is useless to the person reading it, so the `advice`
+field is stored instead: *"The QuickBooks connection has expired or was
+disconnected. Reconnect it to resume syncing."*
+
+---
+
+## 105. The 401 that meant "refresh me", not "reconnect me"
+
+Intuit's review asks whether the app handles four specific failures: expired
+access tokens, expired refresh tokens, invalid grants, and CSRF. Three were
+already true. Checking the first one properly found a bug I had introduced the
+day before.
+
+### The bug decision 104 created
+
+`createQboSession` did not exist yet. `syncQuickBooks` fetched a token once at
+the top, from `getAccessToken`, which decides whether to refresh by reading the
+expiry **we stored when the token was issued**. Then decision 104 added a
+classifier that read:
+
+> A 401 here is the one that matters. `getAccessToken` has already ensured the
+> token is fresh, so being refused with a freshly minted token means the GRANT
+> is gone.
+
+The comment is wrong, and it is wrong in the confident direction. `getAccessToken`
+ensures the token is fresh **according to our own clock**. It cannot see the
+cases where Intuit invalidates an access token before its stated expiry — a
+password change, a security event on the Intuit account, our stored timestamp
+drifting. In all of those our clock says forty minutes left and Intuit answers
+401.
+
+The result was the worst possible advice: a person told to go and reauthorise —
+a manual OAuth round trip — while a perfectly valid refresh token sat one call
+away from fixing it silently.
+
+**A 401 now buys one forced refresh and one retry.** Only a 401 that survives a
+brand-new token is a dead grant.
+
+### The rotation trap this opened, and closing it
+
+Intuit issues a **new refresh token on every refresh** and retires the old one.
+`Integration` is a snapshot passed by value, and nothing updates it — `onRefresh`
+writes the rotated token to the database, not to the object in memory.
+
+So the naive version of this fix contains a worse bug than the one it fixes: the
+forced refresh re-reads `integration.refresh_token_enc`, presents the token
+Intuit has **already retired**, gets `invalid_grant`, and reports "reconnect" for
+a connection that was healthy. A retry path whose failure mode is a false
+reconnect prompt is worse than no retry path.
+
+`createQboSession` closes over a mutable `current` that tracks every rotation,
+so the forced refresh always presents the token Intuit last issued. There is a
+test for exactly this — it starts expired to force a rotation, then 401s to force
+a second refresh, and asserts the second request carried `refresh-token-2` and
+not `refresh-token-1`.
+
+### And then proved against the real Intuit, because the unit test could not
+
+The stubbed token endpoint proves the retry *logic*. It cannot prove the thing
+the whole reactive path hangs on: that Intuit answers **401** to a malformed
+bearer token, rather than 400 or 403. Believing that without checking is the
+same mistake as decision 94's 401-proves-the-endpoint-exists.
+
+`tests/reactive-refresh.integration.test.ts` sets the trap against the live
+connection — a deliberately corrupt access token, an expiry an hour in the
+FUTURE so nothing refreshes proactively, and the real refresh token so the
+forced refresh can succeed. Intuit really does answer 401, the refresh really
+fires exactly once, and real accounts come back.
+
+It rotates the live refresh token, which is what the hourly sync does anyway
+through this same code. The tokens were backed up first, and the test asserts
+the connection still works at the end rather than hoping — a retry path whose
+own test could strand the connection would be worse than no test.
+
+### Retry once, not until it works
+
+Two attempts, then the error stands. Looping would hammer Intuit's token
+endpoint on every ten-minute tick, which is the behaviour their question about
+retries exists to catch in the first place. And 403 is deliberately excluded: a
+scope problem is not a stale token, and refreshing over one just wastes a call.
+
+### CSRF was already right, and is now proved rather than asserted
+
+24 random bytes, httpOnly, SameSite=Lax, ten-minute single-use cookie, compared
+through an HMAC-then-`timingSafeEqual` that cannot throw on a length mismatch.
+
+The attack it stops is specific and nasty: a crafted callback URL handed to the
+owner attaches the **attacker's** QuickBooks company to AHN's account, after
+which AHN's dashboard quietly reports somebody else's books. Probed against the
+running callback — missing cookie, mismatched state, absent state and empty
+state are all refused before the authorisation code is exchanged, and an
+anonymous caller never reaches the check at all.
+
+---
+
+## 106. CDC, and QuickBooks editions that are not the same product
+
+Intuit's review asks which QuickBooks editions the app supports, whether it
+survives a customer changing edition, and whether it uses CDC. Answering those
+honestly meant reading the sync, and the sync had three problems nobody had
+asked about.
+
+### What the query path could not see
+
+Every incremental sync asked each entity `TxnDate >= since`, with `since` seven
+days before the last sync.
+
+- **Deletions were invisible.** A deleted purchase matches no query. It stayed
+  in AHN's ledger for good, counted as cash that had left — a direct breach of
+  "every dollar in, every dollar out".
+- **Old rows never updated.** An invoice dated March and corrected today has a
+  March `TxnDate`, so a seven-day window never saw the correction.
+- **Nine calls a sync**, because QuickBooks' query language has no `OR` and every
+  entity is its own request.
+
+CDC answers all three: it keys on when an object *changed*, returns deleted ones
+with `status: "Deleted"`, and carries six entities in one request. An
+incremental sync is now two calls — one Account query, one CDC.
+
+Account stays on the query path deliberately. Its `CurrentBalance` moves whenever
+a transaction posts, and that does not reliably bump the Account's own
+`LastUpdatedTime`; a CDC-only view would freeze the "provider says" balance that
+reconciliation compares against.
+
+**Deleted transactions are deleted; deleted invoices and bills are voided.**
+Those are the two tables' own rules — Plaid already deletes a reversed
+transaction, and `obligations` says of `void`: "kept, never deleted".
+
+### The shape came from Intuit's schema, and was then checked against Intuit
+
+The parser was written from `CDCResponse` in the XSD inside Intuit's own Java
+SDK, not from a blog post. Then `tests/cdc.integration.test.ts` asked the live
+sandbox, and the real response matched: `CDCResponse[].QueryResponse[]`, one
+block per entity. It also showed something the schema did not: the blocks carry
+`startPosition` and `maxResults` but **no `totalCount`**, so the only reliable
+sign of a cut-off response is the 1,000-object cap. A change set at the cap is
+not trusted; that sync falls back to the full query path.
+
+The `+` in the UTC offset of `changedSince` is percent-encoded. Left raw in a
+query string it arrives as a space.
+
+### Proving the switch cannot double-count
+
+The dangerous failure here is quiet: if CDC named a purchase differently from
+the query path, switching would import every purchase a second time and inflate
+every figure in the system. `tests/qbo-sync-cdc.integration.test.ts` runs a real
+sync on the CDC path and then checks that every cash row CDC reports is already
+held under the identical `external_txn_id`. Fourteen of fourteen were. The ledger
+held 66 QuickBooks transactions before the sync and 66 after.
+
+### Editions
+
+The sandbox is **QuickBooks Online Plus**. Simple Start has no bills and no bill
+payments; asking it for either is refused with code 5030. Before this, that
+refusal escaped `fetchQboTransactions` and failed the whole sync — a Simple Start
+customer would have received no purchases, deposits or payments either, over data
+they never had.
+
+Now 5030 is its own kind, `unavailable`: not retried (it will be refused again),
+not a fault (nothing is wrong), not a reconnect (a new token changes nothing).
+The entity is skipped, the rest arrives, and the entity is remembered in
+`integrations.metadata.qbo_unavailable` so the next tick does not ask again.
+
+**Once a day it is asked again**, because customers change edition whenever they
+like. Remembering "no bills" forever would miss an upgrade; asking every ten
+minutes would mean a refusal on every tick. The re-check runs on the full query
+path rather than CDC, so a newly available entity arrives with its history and
+not just from that minute on.
+
+I could not test a Simple Start company. The 5030 handling is proved with the
+refusal body Intuit documents, and the form answer says so by naming Plus as the
+edition actually run against.
+
+### What CDC does not fix
+
+`ingestTransactions` upserts with `ignoreDuplicates: true`, deliberately, so
+that a sync never overwrites a category somebody corrected by hand. The cost is
+that an **amount** corrected in QuickBooks does not reach the ledger either —
+CDC now reports the edit, and ingest still declines it. That predates this
+change and needs a field-level merge (take QuickBooks' amount and date, keep
+AHN's category) rather than a blunt overwrite. It is recorded here because it
+is the next thing a reviewer of the ledger would find.
+
+---
+
+## 107. Errors that can be looked up, a log that can be handed over, and a way to ask for help
+
+Intuit's review asks four things about errors: whether the app has been tested
+against syntax and validation errors, whether it captures `intuit_tid`, whether
+it keeps logs that can be shared, and whether customers can reach support from
+inside it. On reading the code, **none of the four was true**, and the first one
+hid a bug.
+
+### The bug: a malformed query was retried three times
+
+Decision 104's classifier sent anything it did not recognise to `transient`,
+reasoning that guessing "permanent" might tell somebody to reconnect over our own
+bug. That reasoning was about the wrong risk. Asked for real, the sandbox answers
+a query that does not parse with **400, `ValidationFault`, code 4000**, and one
+naming a missing field with **400, code 4001**. Both fell through to
+`transient`, so each was sent three times per call, every ten minutes — the
+exact pattern "do you retry syntax errors?" exists to catch.
+
+Every 4xx that is not already a reconnect, configuration or edition failure is
+now `rejected`: never retried, reported as a fault in this application, with
+Intuit's own message and detail kept. A 4xx is a client error by definition; a
+blip is a 429 or a 5xx.
+
+### intuit_tid
+
+Intuit's support finds a request by the `intuit_tid` response header. It is now
+passed into every classification — query, CDC, token, revoke — carried on the
+error as `tid`, folded into the message so it reaches every log line, and shown
+on the Integrations card. Measured, not assumed: it is present on successful
+responses and on token-endpoint failures, not only on query errors.
+
+### A log that is kept, and safe to hand over
+
+`integrations.last_error` was the only record, overwritten by the next failure
+and cleared by the next success. `integration_errors` (migration 0039) keeps one
+row per failure. It is the one table written specifically to be shared with
+somebody outside AHN, which decides its shape:
+
+- **Redaction at the write, not at the read.** Bearer and Basic credentials,
+  token-shaped key/value pairs and bare JWTs are replaced before insert. The
+  test checks both halves: that a refresh token is removed, and that a fault
+  code and tid are NOT — a log stripped of what support needs is safe and
+  useless.
+- **No update or delete policy.** A troubleshooting log somebody can edit is not
+  evidence of anything.
+- **Logging never throws.** It runs inside `markFailed`; if it could throw, a
+  database hiccup would abort the write that tells a person their connection
+  needs reconnecting.
+- An error loading the log renders as an error, not as "no errors". That is
+  decision 90's bug, and the error log is the most ironic place it could recur.
+
+Every failure path writes a row — `markFailed`, the three providers that record
+their own failure, QuickBooks' non-fatal obligation and deletion failures, a
+failed connect and a failed revoke. `tests/app-urls.test.ts` checks the call
+sites; `tests/reauth.integration.test.ts` checks that a real `invalid_grant`
+from Intuit, through the real failure path, lands in the table with its tid.
+
+### The privacy policy changed the same day
+
+"We do not share it with third parties" is about financial data and stays true.
+But the support page says error records may be shared with a provider's support,
+so the policy gained an "Error records" section saying exactly what they
+contain, that they carry no financial data or credentials, and that the
+provider's own support is the only place they go. That is the third time the
+policy has had to follow the software; it follows it in the same change now.
+
+### Support
+
+`/support` is public, like the legal pages: the reviewer is not signed in, and
+neither is somebody locked out of their account — one of the commoner reasons to
+need help at all. It is linked from the sidebar on every signed-in page, from the
+sign-in page, and from every logged error, where "Report this" opens an email
+with the tid already in it.
+
+`?tid=` is accepted only if it looks like a tid. It is echoed into a mailto link,
+and a free-text parameter there is a way to put words into a support request the
+sender did not write. Checked with a `<script>` payload: it never reaches the
+link, and appears only inside Next.js's own escaped router data.
+
+### Found on the way, not fixed
+
+`schema-drift.integration.test.ts` had not been run since migrations 0034–0036,
+and four tables — `scenarios`, `departments`, `payroll_runs`,
+`payroll_payments` — had been added without being declared. `SavedScenario` now
+mirrors `scenarios` and matches it in both directions; the other three are typed
+where they are used, and are now listed as such.
+
+The first smoke run after sign-in returned **500 on the dashboard**: "JWT issued
+at future". The local clock is within 0.1 s of Supabase, and the second run
+passed, so this is Supabase's auth service stamping a token a moment ahead of the
+database that checks it — on the first request after sign-in. The dashboard
+failing loudly rather than showing $0.00 is `rowsOrThrow` doing its job, but a
+person who signs in and sees a 500 has been let down all the same. A single retry
+on that one error would cover it; it is recorded here rather than folded into an
+unrelated change.
+
+---
+
+## 108. Next.js 14 → 15.5.25, because 14 had two critical remote-code-execution bugs
+
+Answering Intuit's security questions meant running `npm audit`, which nothing
+in this project had been doing. It reported **23 advisories against Next.js
+14.2.35, two of them critical unauthenticated remote code execution** — one in
+the Image Optimization API via AVIF files, one on Windows-hosted servers — plus
+server-side request forgery, cache poisoning and several denial-of-service
+issues. There is no fixed 14.x. The fix is 15.5.24 or later.
+
+Actual exposure was lower than "critical" suggests, and it matters to say why
+rather than to lean on the scary word: the Image Optimizer had already been
+switched off in `next.config.mjs` (`images: { unoptimized: true }`) for an
+earlier advisory, so the AVIF endpoint did not exist; and Vercel runs Linux, so
+the Windows bug could only have reached a development machine. Several of the
+high-severity issues had no such mitigation. A system that can send payroll does
+not ship on a framework with published RCEs whatever the arithmetic says, and
+answering "yes, we assess vulnerabilities" while it did would have been untrue.
+
+**15.5.25, not 16.** 15.5.25 fixes every advisory listed and is the smallest
+jump that does. 16 brings further breaking changes nobody asked for.
+
+What Next 15 changed, and how little of the application had to know:
+
+- `cookies()` is asynchronous. `createSupabaseServerClient()` stayed
+  synchronous — `@supabase/ssr` accepts async cookie methods, so each one awaits
+  `cookies()` itself and none of the dozens of callers changed. Two route
+  handlers that use cookies directly now `await` them.
+- `params` and `searchParams` are Promises. Every page and route takes `props`
+  and rebinds the old name on its first line, so the body of every page is
+  byte-for-byte what it was. Fifteen files, no logic touched.
+- React 19 came with it.
+
+Verified the way a framework upgrade has to be: typecheck, 692 tests, a
+production build, every page rendered by the smoke test, and a runtime probe of
+each rewritten site — dynamic `[id]` pages, every `searchParams` page, API routes
+with params, and the OAuth state cookie being set by one route and refused as a
+forgery by another. The server log showed no warnings. `npm audit`: 0.
+
+The first build died with "Fatal process out of memory: Zone" — the machine had
+2.2 GB free. That was the environment, not the upgrade; the same build with an
+explicit heap limit succeeded.
+
+---
+
+## 109. Mandatory two-factor sign-in, enforced by the database
+
+Intuit asks whether the app uses multi-factor authentication. It did not: a
+password was the whole of the protection around every bank account AHN has and
+the power to send payroll.
+
+### The boundary is the database; the pages only route
+
+Supabase stamps each access token with `aal` — `aal1` after a password or email
+link, `aal2` once a TOTP code has been verified. Migration 0040 adds one
+RESTRICTIVE policy, `p_require_mfa`, to every table in the schema. Restrictive
+policies are ANDed with the permissive ones, so it adds a condition without
+rewriting any existing rule: roles still decide what somebody may see; this
+decides whether they have signed in properly enough to see anything.
+
+The one view, `projects_for_time`, runs with its owner's rights and so is not
+reached by table policies. It was redefined with the same condition — without
+that, a password alone would still have listed every active project.
+
+`getSession()` now returns null for anything below aal2, so no page or route can
+forget to check. The application's part is routing: a half-signed-in person goes
+to `/mfa/setup` (no authenticator yet) or `/mfa` (has one, has not used it),
+never back to the password form they have just completed.
+
+### Proved in both directions, and the test was made to fail first
+
+`tests/mfa.integration.test.ts` signs a throwaway **owner** in — owner, so every
+permissive policy says yes and only the MFA policy can say no — and asks the
+database directly. Run BEFORE the migration, a password alone read
+transactions, bank accounts, integration token metadata, the audit log and the
+user list. After it: nothing — and the same token, after its TOTP code, reads
+all of them again, so the empty results are the policy and not an empty
+database. The write test inserts a valid row: refused with a row-level-security
+error at aal1, accepted at aal2. A pg check fails for any future table created
+without the policy.
+
+A runtime probe covered seventeen routing cases, including the real owner
+account: signed in with its password, it is sent to set up an authenticator,
+and nothing was enrolled on it.
+
+### What it broke, and why that was the point
+
+**Four permission suites went vacuous.** `access`, `rbac`, `rls` and
+`self-service-time` signed in with passwords. After 0040 every table reads empty
+to them, so every "a viewer cannot see X" assertion would have passed without
+testing anything — the most dangerous kind of green. They now complete the
+second factor through `tests/helpers/two-factor.ts`, which asserts the session
+really is aal2 before returning it; 26 of 26 pass against real role policies. The
+helper deletes the factors of accounts the tests own; the `rls` suite, which may
+point at a real person, instead requires that person's own `VIEWER_TOTP_SECRET`
+and never enrols or deletes anything.
+
+**The layout bounced people through `/login`.** It redirected every null
+session there, and a one-factor session is now null. Found by the routing
+probe, not by reading.
+
+### Recovery
+
+`scripts/mfa-reset.mjs` removes a locked-out person's authenticator. It is the
+most sensitive tool in the repository — resetting a second factor is precisely
+what somebody with a phished password would ask for — so it runs only locally,
+needs `--confirm`, writes an audit record, and its header says to confirm the
+person out of band.
+
+Its first draft called `admin.signOut(userId)` wrapped in a swallowed catch.
+That call takes a user's own JWT, not their id: it would have failed silently
+while the comment above it promised every session was ended. It was removed and
+the limitation written down instead. A protection that does not exist is worse
+than an admitted gap, because nobody goes looking for the gap.
+
+### Found alongside
+
+- **The privacy policy never named the alert channels.** Slack, Resend and
+  Twilio have carried amounts and counterparties since week one, while the
+  policy said "we do not share it with third parties". Found while answering
+  who can see a customer's data. It now names all three and what they carry,
+  and a test fails if an alert host is added without the policy naming it.
+- **The CSP allowed `wss:`** although nothing opens a WebSocket. Removed.
+- **A test's fallback key was wrong.** `qbo-session.test.ts` defaulted
+  `ENCRYPTION_KEY` to 64 hex characters; the code decodes base64 and needs 32
+  bytes. It never ran on a machine with `.env.local`. Running the suite with the
+  env files moved aside — as CI will — failed six tests. Fixed before the CI
+  workflow was written, so its first run is not red.
+- **Slack commands are still one factor.** They authenticate by Slack identity
+  and run with the service role. AHN should require two-factor on the Slack
+  workspace; that is a Slack setting, not code.
+
+---
+
+## 110. The sandbox company has to be cleared before the real one is connected
+
+Intuit approved the app for production. Working out the steps to connect AHN's
+real company found a collision that would have corrupted the ledger on the
+first sync, with no error anywhere.
+
+**QuickBooks numbers every company's records from 1.** A transaction is keyed
+here as `Purchase:123` and an account by its QuickBooks account id — neither
+names the company. So with the sandbox company's 66 transactions and 4 accounts
+still held, the real company's `Purchase:123` is the SAME key as the sandbox's:
+ingest skips it as already held (it never overwrites, deliberately), and the
+real bank account with the sandbox account's id is merged into it. The
+dashboard would have shown fake money with real money missing underneath.
+
+Two pieces make the safe order the only order:
+
+- `scripts/purge-quickbooks-sandbox.mjs` clears one company's rows. It refuses
+  unless the realm is named, exactly one company is on record, and that company
+  has already been disconnected — two companies' rows cannot be told apart, so
+  with two on record it would delete real data. Nothing changes without
+  `--confirm`. Its guards were run against the live database; its delete path
+  runs for the first time when AHN clears the sandbox.
+- The OAuth callback refuses to connect a company while a different one is on
+  record — checked BEFORE the code is exchanged, so a refusal does not leave a
+  grant at Intuit that nothing here holds. Verified at runtime: a different
+  realm is refused with no exchange attempted; the same realm passes.
+
+The root cause — keys that do not name the company — is not fixed here. It
+matters only if AHN connects two QuickBooks companies at once (AHN Media LLC and
+AHN Vietnam on separate files, say); the callback refuses that today rather than
+corrupting the ledger. Supporting it properly means realm-scoped keys and a
+migration of every existing QuickBooks key.
+
+Also found: `invalid_grant` was reported as "rejected the refresh token", but the
+same error answers an expired or reused authorisation CODE — which is what
+reloading the callback page produces during a connect. The message now says
+neither, so it is true for both.
+
+---
+
 ## What was NOT changed
 
 The plan's week-1 boundary held. Subscription intelligence (spec §8) has since been

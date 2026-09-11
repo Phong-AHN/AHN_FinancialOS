@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import crypto from 'node:crypto';
+import { twoFactorSession } from './helpers/two-factor';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { can } from '@/lib/capabilities';
 import type { UserRole } from '@/lib/types';
@@ -72,16 +73,9 @@ describe.skipIf(!ENABLED)('the seven roles, as Postgres enforces them', () => {
         .upsert({ auth_id: authUser.id, email: address, full_name: `RBAC ${role}`, role },
           { onConflict: 'email' });
 
-      const session = await (
-        await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/token?grant_type=password`, {
-          method: 'POST',
-          headers: {
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({ email: address, password }),
-        })
-      ).json();
+      // Password AND authenticator. One factor reads nothing since migration 0040,
+      // and every denial below would pass without testing anything.
+      const session = await twoFactorSession(admin, address, password);
 
       clients.set(
         role,

@@ -29,11 +29,11 @@ export const dynamic = 'force-dynamic';
  * Intuit may append `realmId` to this URL. It is not read: it is an unsigned
  * query parameter and nothing here should act on one.
  */
-export default async function LaunchPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | undefined>;
+export default async function LaunchPage(props: {
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
+  // Next 15: a Promise. Rebound under the old name so nothing below changes.
+  const searchParams = await props.searchParams;
   // Where the tile should land somebody: the page about the connection they
   // just came from. `?next=` is honoured so the same URL can serve a deep link,
   // and it goes through `safeNextPath` so it cannot be turned into an open

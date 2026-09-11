@@ -16,11 +16,11 @@ const PAGE_SIZE = 100;
  * record of a financial edit cannot be altered or removed through the app,
  * including by the owner. That property is the whole value of the table.
  */
-export default async function AuditPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | undefined>;
+export default async function AuditPage(props: {
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
+  // Next 15: a Promise. Rebound under the old name so nothing below changes.
+  const searchParams = await props.searchParams;
   // The owner check and the query start together. `requireOwner()` costs a
   // round trip to Tokyo, and gating the query behind it added that to every
   // load. A viewer who reaches here still gets redirected before anything

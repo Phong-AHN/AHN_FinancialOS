@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
-import { getSession } from '@/lib/auth';
+import { getAssurance, getSession, mfaPathFor } from '@/lib/auth';
 import { createSupabaseServerClient, isSupabaseConfigured } from '@/lib/supabase/server';
 import { SetupRequired } from '@/components/SetupRequired';
 
@@ -24,7 +24,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       .eq('reconciliation_status', 'possible_duplicate'),
   ]);
 
-  if (!session) redirect('/login');
+  // Halfway signed in is not signed out. `getSession()` is null for a
+  // one-factor session, and sending that person to /login would show them the
+  // password form they have just completed — so the second-factor step is
+  // checked first. `getAssurance()` is memoised, so this costs no extra call.
+  if (!session) redirect(mfaPathFor(await getAssurance()) ?? '/login');
 
   return (
     <div className="flex h-screen overflow-hidden">

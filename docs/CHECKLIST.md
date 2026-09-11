@@ -3,7 +3,7 @@
 One page. [DONE.md](DONE.md) has the detail, [TODO.md](TODO.md) has what is left,
 [DECISIONS.md](DECISIONS.md) has the reasoning.
 
-_8 Sep 2026 · 25 pages (20 behind a login, 5 public) · 38 API routes · 37 migrations · 622 tests · 103 decisions_
+_8 Sep 2026 · 28 pages (20 behind a login, 8 outside it) · 38 API routes · 40 migrations · 711 tests · 110 decisions_
 
 ---
 
@@ -57,6 +57,20 @@ _8 Sep 2026 · 25 pages (20 behind a login, 5 public) · 38 API routes · 37 mig
 - [x] Region pinned beside the database; "today" resolves in Vietnam, not UTC
 - [x] Public **privacy policy** and **EULA**, plus Intuit's Launch / Disconnect / Connect URLs
 - [x] Disconnect revokes at Intuit **and** deletes the stored token — the policy said so, now it is true
+- [x] Transient provider failures retried with jittered backoff; a dead grant is **not** retried
+- [x] A revoked connection sets `reauth_required`, prompts a reconnect, and alerts once
+- [x] A 401 forces one token refresh and retries — proved against live Intuit, rotation tracked so the retired token is never replayed
+- [x] OAuth `state` proved against forged callbacks: missing, empty and mismatched all refused
+- [x] No OAuth Playground or offline tokens — every grant comes from the in-app flow, enforced by test
+- [x] QuickBooks **CDC** for incremental syncs — 2 calls instead of 9, and deletions finally reach the ledger
+- [x] Works on every QuickBooks edition — a feature the subscription lacks is skipped and re-checked daily, never fatal
+- [x] Provider error log with Intuit's `intuit_tid` and fault code — kept, redacted, never editable
+- [x] Syntax and validation errors are `rejected` and sent once, not retried three times — proved live
+- [x] Support reachable from every page, the sign-in page, and every logged error
+- [x] **Two-factor sign-in mandatory for every account**, enforced by the database — a password alone reads nothing
+- [x] Next.js 14 → 15.5.25: 23 advisories, two critical RCEs, closed — `npm audit` 0
+- [x] Weekly vulnerability checks in CI and Dependabot, no secrets needed
+- [x] Privacy policy names every service alerts pass through, checked by test
 
 ---
 
@@ -70,9 +84,13 @@ _8 Sep 2026 · 25 pages (20 behind a login, 5 public) · 38 API routes · 37 mig
 
 ## Waiting on you, not on code
 
-- 🔴 Plaid Production · QuickBooks production keys · 5 VietinBank values · VEEM keys
+- ✅ QuickBooks **approved for production** — follow DEPLOYMENT.md → *Switching QuickBooks from the sandbox to the real company*
+- 🔴 Plaid Production · 5 VietinBank values · VEEM keys
 - 🔴 Paste the six Intuit app URLs (all built and live) — [DEPLOYMENT.md](DEPLOYMENT.md#the-five-urls-intuit-asks-for)
 - 🟡 Confirm the EULA's governing jurisdiction, and have a lawyer read it
+- 🔴 **Set up your authenticator** — your next sign-in requires it
+- 🔴 Push to GitHub so the security workflow and Dependabot start running
+- 🟡 Require two-factor on the Slack workspace (slash commands are otherwise one factor)
 - 🔴 Deploy to Vercel + Railway · rotate the two passwords typed into chat
 - 🟡 **0 projects, 0 people, 0 hours logged** — §12–§16 and §13 are built and have nothing to show. This is the biggest unlock.
 - 🟡 26 transactions uncategorised — 26% of 90-day spending

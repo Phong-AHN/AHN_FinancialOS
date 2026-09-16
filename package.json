@@ -21,7 +21,7 @@
     "@anthropic-ai/sdk": "^0.125.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
-    "next": "^15.5.25",
+    "next": "^16.3.5",
     "papaparse": "^5.4.1",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

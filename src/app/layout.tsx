@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'AHN Financial OS',
+  title: 'My Cash Pilot',
   description:
     'Every dollar in. Every dollar out. Cash, runway, break-even and every-dollar alerting for Asian Hustle Network.',
   robots: { index: false, follow: false },

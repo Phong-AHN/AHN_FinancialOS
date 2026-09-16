@@ -40,7 +40,7 @@ export async function POST(request: Request) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
   const alert = formatThresholdAlert({
     kind: 'low_balance',
-    headline: 'Test alert from AHN Financial OS',
+    headline: 'Test alert from My Cash Pilot',
     detail: `Delivery is working. Current cash ${formatMoney(snapshot.cash.totalUsdMinor)}, runway ${formatMonths(snapshot.runway.headlineMonths)}, ${formatMoney(snapshot.breakEven.gapUsdMinor)} still needed to break even this month. Sent by ${auth.session.email}.`,
     url: appUrl,
     severity: 'info',

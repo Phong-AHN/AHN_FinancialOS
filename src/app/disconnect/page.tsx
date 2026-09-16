@@ -5,8 +5,8 @@ import { createSupabaseServerClient, isSupabaseConfigured } from '@/lib/supabase
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Disconnected — AHN Financial OS',
-  description: 'What happens after disconnecting AHN Financial OS from QuickBooks.',
+  title: 'Disconnected — My Cash Pilot',
+  description: 'What happens after disconnecting My Cash Pilot from QuickBooks.',
 };
 
 /**
@@ -64,7 +64,7 @@ export default async function DisconnectPage() {
       </h1>
 
       <p className="muted" style={{ marginTop: 12, fontSize: 14 }}>
-        AHN Financial OS no longer has access to that QuickBooks company. Intuit revoked the
+        My Cash Pilot no longer has access to that QuickBooks company. Intuit revoked the
         connection when you disconnected it, so no further data will be read.
       </p>
 

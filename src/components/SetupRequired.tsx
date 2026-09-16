@@ -37,7 +37,7 @@ values ('you@asianhustlenetwork.com', 'Your Name', 'owner');`,
 
   return (
     <div className="mx-auto max-w-[720px] px-8 py-16">
-      <h1 className="text-[22px] font-semibold tracking-tight">AHN Financial OS — setup</h1>
+      <h1 className="text-[22px] font-semibold tracking-tight">My Cash Pilot — setup</h1>
       <p className="muted mt-2 text-[13.5px] leading-relaxed">
         The app is running but has no database connection yet. Four steps to a working dashboard.
       </p>

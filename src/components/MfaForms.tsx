@@ -81,7 +81,7 @@ export function MfaSetup({ next }: { next: string }) {
 
       const { data, error: enrollError } = await supabase.auth.mfa.enroll({
         factorType: 'totp',
-        friendlyName: `AHN Financial OS · ${new Date().toISOString().slice(0, 16)}`,
+        friendlyName: `My Cash Pilot · ${new Date().toISOString().slice(0, 16)}`,
       });
       if (enrollError || !data) {
         setState({ kind: 'failed', message: enrollError?.message ?? 'Could not start setup.' });
@@ -136,7 +136,7 @@ export function MfaSetup({ next }: { next: string }) {
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={state.qr}
-        alt="QR code to add AHN Financial OS to your authenticator app"
+        alt="QR code to add My Cash Pilot to your authenticator app"
         width={184}
         height={184}
         className="mx-auto my-4 rounded-lg bg-white p-2"

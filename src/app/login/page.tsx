@@ -37,7 +37,7 @@ export default async function LoginPage(props: {
     <div className="flex min-h-screen items-center justify-center px-6">
       <div className="w-full max-w-[380px]">
         <div className="mb-7 text-center">
-          <h1 className="text-[20px] font-semibold tracking-tight">AHN Financial OS</h1>
+          <h1 className="text-[20px] font-semibold tracking-tight">My Cash Pilot</h1>
           <p className="muted mt-1.5 text-[13px]">Every dollar in. Every dollar out.</p>
         </div>
 

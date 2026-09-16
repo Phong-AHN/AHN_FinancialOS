@@ -194,7 +194,7 @@ and set `QBO_REDIRECT_URI` to match.
 
 Intuit will not issue **production** keys until the app settings are complete.
 Five of the fields are URLs this repository serves. Replace `APP` with the
-production origin (`https://ahn-financial-os.vercel.app`, or the custom domain
+production origin (`https://my-cash-pilot.vercel.app`, or the custom domain
 if one is set) and paste them in exactly.
 
 | Intuit field | Value | What it does |

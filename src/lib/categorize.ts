@@ -91,6 +91,36 @@ const RULES: Rule[] = [
     direction: 'inflow',
     counterpartyType: 'customer',
   },
+  /*
+   * AHN sells seats at named events, and the charge description is the event,
+   * not the word "ticket": "Asian Heritage Launch 2026 | Melbourne", "HER
+   * Legacy: A Women's Leadership Luncheon | Las Vegas", "Access Conference
+   * 2026". 189 of them arrived in the first production sync and landed in
+   * revenue with no subcategory, which is the same as saying "money came in,
+   * we don't know from what".
+   */
+  {
+    id: 'rev-events',
+    patterns:
+      /\b(conference|summit|luncheon|gala|mixer|meet ?up|workshop|networking|retreat|expo|symposium|masterclass|bootcamp|seminar|launch \d{4})\b/i,
+    category: 'revenue',
+    subcategory: 'tickets',
+    direction: 'inflow',
+    counterpartyType: 'customer',
+  },
+  /*
+   * Management consulting is the revenue line AHN is opening with Stripe
+   * invoicing. Without this, a paid engagement invoice reads as unspecified
+   * revenue and cannot be told apart from event income in any report.
+   */
+  {
+    id: 'rev-consulting',
+    patterns: /\b(consulting|consultancy|advisory|retainer|engagement fee|professional services|strategy session)\b/i,
+    category: 'revenue',
+    subcategory: 'consulting',
+    direction: 'inflow',
+    counterpartyType: 'customer',
+  },
   {
     id: 'rev-membership',
     patterns: /\b(membership|member dues|community subscription|patreon)\b/i,
@@ -355,10 +385,101 @@ export interface CategorizeInput {
    * is Philippines payroll with certainty no description could match.
    */
   sourceSystem?: SourceSystem | null;
+  /**
+   * The provider's own classification of the row, when it has one — Stripe's
+   * `balance_transaction.type`, for instance. More reliable than any wording.
+   */
+  providerType?: string | null;
   direction: TxnDirection;
 }
 
 /** Rails that exist for one purpose, so the file itself settles the category. */
+/**
+ * What the payment processor itself calls the transaction.
+ *
+ * Stripe's `balance_transaction.type`. Only the types whose meaning is
+ * unambiguous are listed: a `charge` is left to the rules below, because
+ * "somebody paid us" does not say what they bought — the description does.
+ */
+const PROVIDER_TYPES: Record<string, Omit<CategoryGuess, 'matchedRule'>> = {
+  refund: {
+    category: 'revenue',
+    subcategory: 'refund',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: false,
+    counterpartyType: 'customer',
+  },
+  payment_refund: {
+    category: 'revenue',
+    subcategory: 'refund',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: false,
+    counterpartyType: 'customer',
+  },
+  // A dispute takes the money back and charges a fee for the privilege. The
+  // money is revenue reversing; the fee arrives as its own `adjustment` line.
+  adjustment: {
+    category: 'revenue',
+    subcategory: 'chargeback',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: false,
+    counterpartyType: 'customer',
+  },
+  stripe_fee: {
+    category: 'bank_fees',
+    subcategory: 'processing',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: false,
+    counterpartyType: 'vendor',
+  },
+  application_fee: {
+    category: 'bank_fees',
+    subcategory: 'processing',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: false,
+    counterpartyType: 'vendor',
+  },
+  // Our own money moving to our own bank. Counted as revenue it would double
+  // every sale: once when the customer paid, again when Stripe paid us out.
+  payout: {
+    category: 'transfer',
+    subcategory: 'processor_payout',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: true,
+    counterpartyType: 'internal',
+  },
+  payout_cancel: {
+    category: 'transfer',
+    subcategory: 'processor_payout',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: true,
+    counterpartyType: 'internal',
+  },
+  payout_failure: {
+    category: 'transfer',
+    subcategory: 'processor_payout',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: true,
+    counterpartyType: 'internal',
+  },
+  transfer: {
+    category: 'transfer',
+    subcategory: 'processor_payout',
+    isSubscription: false,
+    isRecurring: false,
+    isInternalTransfer: true,
+    counterpartyType: 'internal',
+  },
+};
+
 const SOURCE_CATEGORIES: Partial<Record<SourceSystem, Omit<CategoryGuess, 'matchedRule'>>> = {
   csv_veem: {
     category: 'people',
@@ -405,6 +526,22 @@ export function categorize(input: CategorizeInput): CategoryGuess {
   if (input.direction === 'outflow' && input.sourceSystem) {
     const bySource = SOURCE_CATEGORIES[input.sourceSystem];
     if (bySource) return { ...bySource, matchedRule: `source:${input.sourceSystem}` };
+  }
+
+  /*
+   * The processor's own word for what happened beats anything read out of a
+   * description. Stripe says `refund`, `payout`, `stripe_fee` on every balance
+   * transaction; those are facts, not guesses.
+   *
+   * Found in the first production sync: two refunds of conference tickets read
+   * "REFUND FOR CHARGE (Access Conference 2026)" and matched no rule at all, so
+   * they landed in the uncategorised queue while Stripe had labelled them
+   * plainly. A refund is not an expense — it is revenue going back out — and
+   * booking it as a cost would overstate both revenue and spend.
+   */
+  if (input.providerType) {
+    const byType = PROVIDER_TYPES[input.providerType];
+    if (byType) return { ...byType, matchedRule: `stripe:${input.providerType}` };
   }
 
   // The ledger account goes FIRST: it is the most authoritative signal, and the

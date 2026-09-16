@@ -95,7 +95,7 @@ const reply = (text: string): SlackReply => ({ response_type: 'ephemeral', text 
 export function helpText(unknownWord?: string): SlackReply {
   const preamble = unknownWord
     ? `I do not know \`${unknownWord}\`. Here is everything I do know:`
-    : '*AHN Financial OS* — every answer is the same figure the dashboard shows.';
+    : '*My Cash Pilot* — every answer is the same figure the dashboard shows.';
 
   return reply(
     [
@@ -288,7 +288,7 @@ export function unlinkedReply(slackUserId: string): SlackReply {
   return {
     response_type: 'ephemeral',
     text:
-      `Your Slack account (\`${slackUserId}\`) is not linked to an AHN Financial OS user, ` +
+      `Your Slack account (\`${slackUserId}\`) is not linked to an My Cash Pilot user, ` +
       'so I cannot tell what you are allowed to see.\n' +
       'Ask the owner to link it — being in this workspace is not by itself permission to read the company’s finances.',
   };

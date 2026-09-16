@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { recordAudit } from '@/lib/audit';
 import { decryptSecret } from '@/lib/crypto';
 import { revokeTokens } from '@/lib/connectors/quickbooks';
+import { removeItem } from '@/lib/connectors/plaid';
 import { recordIntegrationError } from '@/lib/integration-errors';
 import type { Integration } from '@/lib/types';
 
@@ -53,9 +54,11 @@ export async function DELETE(
 
   const integration = data as Integration;
 
-  // Step 1. Only QuickBooks has a revocation endpoint we hold credentials for.
-  // The others are disconnected at the provider, and saying otherwise here
-  // would be the same overclaim this route exists to fix.
+  // Step 1. QuickBooks and Plaid both end the grant on their side — Intuit by
+  // revoking the token, Plaid by removing the Item, which also stops the Item
+  // being billed. The remaining providers hold no such endpoint we have
+  // credentials for, and saying otherwise here would be the same overclaim this
+  // route exists to fix.
   let revoked: string;
   if (integration.provider === 'quickbooks' && integration.refresh_token_enc) {
     try {
@@ -77,6 +80,31 @@ export async function DELETE(
             err instanceof Error
               ? `${err.message} The connection was left in place so this can be retried.`
               : 'Could not revoke the token at Intuit.',
+        },
+        { status: 502 },
+      );
+    }
+  } else if (integration.provider === 'plaid' && integration.access_token_enc) {
+    try {
+      await removeItem(decryptSecret(integration.access_token_enc));
+      revoked = 'Item removed at Plaid';
+    } catch (err) {
+      await recordIntegrationError(db, {
+        integrationId: integration.id,
+        provider: 'plaid',
+        operation: 'disconnect',
+        error: err,
+      });
+      // Same reasoning as QuickBooks: deleting our token while the Item lives
+      // on at Plaid would report success over a standing permission on a real
+      // bank account.
+      return Response.json(
+        {
+          ok: false,
+          error:
+            err instanceof Error
+              ? `${err.message} The connection was left in place so this can be retried.`
+              : 'Could not remove the Item at Plaid.',
         },
         { status: 502 },
       );

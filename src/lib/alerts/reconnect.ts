@@ -30,7 +30,7 @@ export async function notifyReconnectNeeded(
 
   const text =
     `${input.advice}\n\n` +
-    `Syncing from ${name} has stopped, and the figures in AHN Financial OS will not ` +
+    `Syncing from ${name} has stopped, and the figures in My Cash Pilot will not ` +
     `update until it is reconnected. Nothing already imported has been lost.\n\n` +
     `Reconnect: ${url}`;
 

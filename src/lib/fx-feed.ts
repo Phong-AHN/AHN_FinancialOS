@@ -328,7 +328,7 @@ export async function fetchQuotes(
     try {
       const res = await fetch(url, {
         signal: controller.signal,
-        headers: { 'user-agent': 'ahn-financial-os', accept: 'application/json, text/xml, */*' },
+        headers: { 'user-agent': 'my-cash-pilot', accept: 'application/json, text/xml, */*' },
         cache: 'no-store',
       });
       if (!res.ok) {

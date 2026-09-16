@@ -39,7 +39,9 @@ export function sandboxSources(): Set<SourceSystem> {
    * Stripe will not accept a test key against live data or the reverse.
    */
   const stripeKey = process.env.STRIPE_SECRET_KEY ?? '';
-  if (stripeKey.startsWith('sk_test_')) sandboxed.add('stripe');
+  // `rk_test_…` is the same test data reached through a restricted key, and it
+  // fabricates a balance just as convincingly. Only the prefix differs.
+  if (stripeKey.startsWith('sk_test_') || stripeKey.startsWith('rk_test_')) sandboxed.add('stripe');
 
   return sandboxed;
 }

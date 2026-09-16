@@ -102,7 +102,7 @@ async function plaidPost<T>(path: string, body: Record<string, unknown>): Promis
 export async function createLinkToken(userId: string): Promise<string> {
   const json = await plaidPost<{ link_token: string }>('/link/token/create', {
     user: { client_user_id: userId },
-    client_name: 'AHN Financial OS',
+    client_name: 'My Cash Pilot',
     products: ['transactions'],
     country_codes: ['US'],
     language: 'en',
@@ -114,6 +114,21 @@ export async function exchangePublicToken(
   publicToken: string,
 ): Promise<{ access_token: string; item_id: string }> {
   return plaidPost('/item/public_token/exchange', { public_token: publicToken });
+}
+
+/**
+ * End the connection at Plaid, not only here.
+ *
+ * Deleting our copy of the access token stops US from reaching the bank. It
+ * does nothing at Plaid: the Item stays live, stays billable, and stays a
+ * standing permission over a real bank account that nobody is watching any
+ * more. `/item/remove` invalidates the token and ends the Item for good.
+ *
+ * Plaid asks for this when a person disconnects, and it is the honest meaning
+ * of the word "disconnect" on the Integrations page.
+ */
+export async function removeItem(accessToken: string): Promise<void> {
+  await plaidPost('/item/remove', { access_token: accessToken });
 }
 
 // ─── Accounts ───────────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ export function createSupabaseAdminClient(): SupabaseClient {
   cached = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: {
-      headers: { 'x-application-name': 'ahn-financial-os' },
+      headers: { 'x-application-name': 'my-cash-pilot' },
       fetch: noStoreFetch,
     },
   });

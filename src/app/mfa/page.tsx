@@ -6,7 +6,7 @@ import { MfaChallenge } from '@/components/MfaForms';
 import { MfaShell } from '@/components/MfaShell';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Two-factor sign-in — AHN Financial OS' };
+export const metadata: Metadata = { title: 'Two-factor sign-in — My Cash Pilot' };
 
 /**
  * The second factor, once it is set up.

@@ -1,0 +1,560 @@
+[
+  {
+    "id": "58bbd9aa-e391-4690-b578-00f9a759e9ce",
+    "name": "Uber",
+    "normalized_name": "uber",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "89d4deb3-fc6f-4f2b-ae18-3d25b722daf5",
+    "name": "United Airlines",
+    "normalized_name": "united airlines",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "f372a877-579d-41a8-9d03-ba34fd48a601",
+    "name": "McDonald's",
+    "normalized_name": "mcdonald s",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "04d84a45-493c-4716-85bb-e1fad091755d",
+    "name": "Starbucks",
+    "normalized_name": "starbucks",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "2fe602d3-a1cb-4bbf-ad8f-fce66f47654d",
+    "name": "FUN",
+    "normalized_name": "fun",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "04440381-fad0-494c-8590-d80b4cc34a67",
+    "name": "CREDIT CARD 3333 PAYMENT *//",
+    "normalized_name": "credit card 3333 payment",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "2af854ec-a5c2-4a81-b501-757d89224a66",
+    "name": "INTRST PYMNT",
+    "normalized_name": "intrst pymnt",
+    "type": "customer",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "c50020f0-de73-45e0-a332-3445b20c7348",
+    "name": "CD DEPOSIT .INITIAL.",
+    "normalized_name": "cd deposit initial",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "f3a50b5e-0008-4e84-9fba-d889a3afaf70",
+    "name": "Tectra Inc",
+    "normalized_name": "tectra",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "3785a9c2-facc-4d46-8b7a-32c71de5f515",
+    "name": "Madison Bicycle Shop",
+    "normalized_name": "madison bicycle shop",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "ed5b29ab-b6a1-41ef-922a-e6b05124e627",
+    "name": "KFC",
+    "normalized_name": "kfc",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "6ebf8d52-4db9-4ba0-a7ad-17310808834c",
+    "name": "AUTOMATIC PAYMENT - THANK",
+    "normalized_name": "automatic payment thank",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "82eefe9d-9d5b-4007-be2d-d90927b1dc44",
+    "name": "Touchstone Climbing",
+    "normalized_name": "touchstone climbing",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "97fdce67-adb0-41fa-a181-ba1b20ac2aaa",
+    "name": "ACH Electronic CreditGUSTO PAY 123456",
+    "normalized_name": "ach electronic creditgusto pay 123456",
+    "type": "vendor",
+    "source_system": "plaid",
+    "external_id": null,
+    "created_at": "2026-08-27T02:56:22.757198+00:00"
+  },
+  {
+    "id": "5f7176ee-c8b4-4eab-b6b1-e2a4bde4b76c",
+    "name": "CHUYEN LUONG NHAN VIEN THANG 06/2026",
+    "normalized_name": "chuyen luong nhan vien thang 06 2026",
+    "type": "employee",
+    "source_system": "csv_vn_bank",
+    "external_id": null,
+    "created_at": "2026-08-27T09:40:51.509399+00:00"
+  },
+  {
+    "id": "6598194f-05e9-4940-9482-128ff995b6e2",
+    "name": "THANH TOAN HOA DON DIEN THANG 06",
+    "normalized_name": "thanh toan hoa don dien thang 06",
+    "type": "vendor",
+    "source_system": "csv_vn_bank",
+    "external_id": null,
+    "created_at": "2026-08-27T09:40:51.509399+00:00"
+  },
+  {
+    "id": "a33295ee-6367-46ad-bf59-f60a5a1206fe",
+    "name": "NHAN TIEN TU CONG TY ME AHN MEDIA LLC",
+    "normalized_name": "nhan tien tu cong ty me ahn media",
+    "type": "customer",
+    "source_system": "csv_vn_bank",
+    "external_id": null,
+    "created_at": "2026-08-27T09:40:51.509399+00:00"
+  },
+  {
+    "id": "1bd9bdb1-3736-46ae-879e-a6adf255c558",
+    "name": "PHI DICH VU NGAN HANG THANG 07",
+    "normalized_name": "phi dich vu ngan hang thang 07",
+    "type": "vendor",
+    "source_system": "csv_vn_bank",
+    "external_id": null,
+    "created_at": "2026-08-27T09:40:51.509399+00:00"
+  },
+  {
+    "id": "c9140e0d-6226-494f-8b2e-f384472c30d8",
+    "name": "THANH TOAN VAN PHONG PHAM",
+    "normalized_name": "thanh toan van phong pham",
+    "type": "vendor",
+    "source_system": "csv_vn_bank",
+    "external_id": null,
+    "created_at": "2026-08-27T09:40:51.509399+00:00"
+  },
+  {
+    "id": "a2d24226-8b75-4263-a85f-cf1a9371b1cb",
+    "name": "KHACH HANG THANH TOAN HOP DONG",
+    "normalized_name": "khach hang thanh toan hop dong",
+    "type": "customer",
+    "source_system": "csv_vn_bank",
+    "external_id": null,
+    "created_at": "2026-08-27T09:40:51.509399+00:00"
+  },
+  {
+    "id": "2e63b390-3144-468b-bbab-5c31217343ed",
+    "name": "CT TNHH DAI LY THUE Q.P.T",
+    "normalized_name": "ct tnhh dai ly thue q p t",
+    "type": "vendor",
+    "source_system": "image_vn_bank",
+    "external_id": null,
+    "created_at": "2026-09-11T09:50:05.64379+00:00"
+  },
+  {
+    "id": "eecdf4b8-7ae2-4415-b094-5ce8c2dea19c",
+    "name": "CONG TY TNHH DAU TU VAN TAI HAI MINH",
+    "normalized_name": "cong ty tnhh dau tu van tai hai minh",
+    "type": "vendor",
+    "source_system": "image_vn_bank",
+    "external_id": null,
+    "created_at": "2026-09-11T09:50:05.64379+00:00"
+  },
+  {
+    "id": "7d817035-71c9-4aaa-b455-365156cb4b14",
+    "name": "Membership dues — monthly, Bayan Foods",
+    "normalized_name": "membership dues monthly bayan foods",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "d3ef18ba-84b5-4ab4-bfc1-6ff652573005",
+    "name": "Stripe",
+    "normalized_name": "stripe",
+    "type": "vendor",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "3bddca6c-ee39-4fc1-a993-4c1c923c0645",
+    "name": "Sponsorship — Chase for Business, newsletter",
+    "normalized_name": "sponsorship chase for business newsletter",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "694dc458-3b36-40e4-8e98-1d361906e637",
+    "name": "Community workshop — TikTok Shop masterclass",
+    "normalized_name": "community workshop tiktok shop masterclass",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "3bceed30-cb82-483d-8e9a-1c8678b696b9",
+    "name": "Client retainer — Lotus Beauty Labs, August",
+    "normalized_name": "client retainer lotus beauty labs august",
+    "type": "vendor",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "8d69a9fa-2069-4de4-bea3-5fecf91b9012",
+    "name": "Sponsorship — Rakuten, Q3 activation",
+    "normalized_name": "sponsorship rakuten q3 activation",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "30d28ae9-a900-4487-8e22-69ed554c73e5",
+    "name": "AHN Summit ticket — standard",
+    "normalized_name": "ahn summit ticket standard",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "b1fc90ee-68f6-4405-8321-077714351f54",
+    "name": "AHN Summit ticket — early bird x2",
+    "normalized_name": "ahn summit ticket early bird x2",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "8dcef972-db3d-4b77-b067-9da807407e1a",
+    "name": "Membership dues — annual, Pacific Rim Ventures",
+    "normalized_name": "membership dues annual pacific rim ventures",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "3f9704ca-02d1-4974-8383-ec4c3fd94b0a",
+    "name": "Membership dues — monthly, Saigon Coffee Co",
+    "normalized_name": "membership dues monthly saigon coffee",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "6bcb69ef-b22a-4cd1-9caa-7df7873e9a70",
+    "name": "Membership dues — monthly, Nguyen Holdings",
+    "normalized_name": "membership dues monthly nguyen holdings",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-08-27T04:53:47.510072+00:00"
+  },
+  {
+    "id": "639bc3a9-f373-41c5-82f8-76d793701b80",
+    "name": "Client retainer — Lotus Beauty Labs, August",
+    "normalized_name": "client retainer lotus beauty labs august",
+    "type": "customer",
+    "source_system": "stripe",
+    "external_id": null,
+    "created_at": "2026-09-02T18:01:15.269329+00:00"
+  },
+  {
+    "id": "4933699a-3a8b-4470-988c-f600c3262971",
+    "name": "PROBE COUNTERPARTY",
+    "normalized_name": "probe counterparty",
+    "type": "vendor",
+    "source_system": "image_vn_bank",
+    "external_id": null,
+    "created_at": "2026-09-14T18:18:36.646601+00:00"
+  },
+  {
+    "id": "f9892744-1618-4dc2-adc4-3f6a619e4f71",
+    "name": "Hicks Hardware",
+    "normalized_name": "hicks hardware",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "fc5a9e4e-b72c-4df0-ad44-16bfd7f3ff9f",
+    "name": "Squeaky Kleen Car Wash",
+    "normalized_name": "squeaky kleen car wash",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "91b257d5-4d7c-4578-8748-c6718bf8a0bb",
+    "name": "Bob's Burger Joint",
+    "normalized_name": "bob s burger joint",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "369c006d-d9b1-46ec-a33a-69416c65908a",
+    "name": "Tania's Nursery",
+    "normalized_name": "tania s nursery",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "85d324d3-fc34-4b97-a377-5c77c692ea44",
+    "name": "Chin's Gas and Oil",
+    "normalized_name": "chin s gas and oil",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "e50ce727-1da8-44c8-bcc6-8727ae587161",
+    "name": "Pam Seitz",
+    "normalized_name": "pam seitz",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "50ef1fd5-f0b2-451b-bbf3-60c4f6263e63",
+    "name": "Books by Bessie",
+    "normalized_name": "books by bessie",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "281f7f7b-0b69-4523-9a95-f0279b4a3f21",
+    "name": "Robertson & Associates",
+    "normalized_name": "robertson associates",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "a9a994fd-71e5-4c12-8783-a91b517cfbdd",
+    "name": "Tony Rondonuwu",
+    "normalized_name": "tony rondonuwu",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "9c315616-bc8e-47ba-8ec6-8c98ed0e5c4c",
+    "name": "Lee Advertising",
+    "normalized_name": "lee advertising",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "5d1ddfd9-a4ec-4896-a196-e8091c22076c",
+    "name": "Ellis Equipment Rental",
+    "normalized_name": "ellis equipment rental",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "de2aaac8-220a-4745-a84a-c87d56c40b9a",
+    "name": "Mahoney Mugs",
+    "normalized_name": "mahoney mugs",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "5a602158-5916-4e22-ade1-cb2d335e2d08",
+    "name": "Norton Lumber and Building Materials",
+    "normalized_name": "norton lumber and building materials",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "320e5ea2-de0d-4a4e-ae69-b296c73337a4",
+    "name": "Cal Telephone",
+    "normalized_name": "cal telephone",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "44b526a9-4866-4633-a749-fed8ad927f9e",
+    "name": "Hall Properties",
+    "normalized_name": "hall properties",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "cedc147a-6b7a-42ca-91d7-6e557285fb85",
+    "name": "Tim Philip Masonry",
+    "normalized_name": "tim philip masonry",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "34e70fb6-1c82-4aef-8cf5-93a57b3f14b5",
+    "name": "PG&E",
+    "normalized_name": "pg e",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "b235e043-9292-4048-a413-c4ad235f116c",
+    "name": "Brosnahan Insurance Agency",
+    "normalized_name": "brosnahan insurance agency",
+    "type": "vendor",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "43aa5b41-987b-4b32-860b-a64c777cc96c",
+    "name": "0969 Ocean View Road",
+    "normalized_name": "0969 ocean view road",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "779f2350-a069-40c9-ab7d-1dead7a7218c",
+    "name": "Cool Cars",
+    "normalized_name": "cool cars",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "0dcb9443-83c6-4298-9770-fb07e2e5b3b5",
+    "name": "Sushi by Katsuyuki",
+    "normalized_name": "sushi by katsuyuki",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "fc55437b-b2f2-4df6-bfb0-efe99565bb82",
+    "name": "Amy's Bird Sanctuary",
+    "normalized_name": "amy s bird sanctuary",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "e8a9f67a-5004-4213-b8db-46ac286236ea",
+    "name": "Travis Waldron",
+    "normalized_name": "travis waldron",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "30f077a4-6ba6-4d12-a1d3-75250f9dab4d",
+    "name": "Dukes Basketball Camp",
+    "normalized_name": "dukes basketball camp",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "62f68d62-12b7-4246-9099-8b84f2bda6af",
+    "name": "55 Twin Lane",
+    "normalized_name": "55 twin lane",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "05bbfd36-f507-454c-8f2e-386cbd135392",
+    "name": "Bill's Windsurf Shop",
+    "normalized_name": "bill s windsurf shop",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  },
+  {
+    "id": "b991b195-8729-4fcf-90d7-810a7dc1083c",
+    "name": "John Melton",
+    "normalized_name": "john melton",
+    "type": "customer",
+    "source_system": "quickbooks",
+    "external_id": null,
+    "created_at": "2026-08-26T11:06:50.27906+00:00"
+  }
+]

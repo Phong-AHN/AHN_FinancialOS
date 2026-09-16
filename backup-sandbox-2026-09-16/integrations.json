@@ -1,0 +1,57 @@
+[
+  {
+    "id": "d8f89edc-77f5-426e-b5ab-880f300e6f1b",
+    "provider": "plaid",
+    "label": "Plaid item",
+    "status": "connected",
+    "external_id": "mK3PGeeqqlI1Ga9g1bNMT1vpZpvQqKS79RGQ8",
+    "access_token_enc": "v1.ElsuH9Ldud9ezRyZ.yxUTsLVqPqmPtMIMw6eF+Q==.QOL0thmKxVDWwkdFJY5GIO2uG4QGo3ueCOXg3do+M5qb7cGn0y5+V7wMHZQaTKYL1aIf",
+    "refresh_token_enc": null,
+    "token_expires_at": null,
+    "last_synced_at": "2026-09-04T01:57:42.077+00:00",
+    "last_cursor": "CAESJTZxeTczd3d6ekFjTW02cUtNOGVrSVJkNDliNGV4QlVWclpHZEQaDAjVzr7UBhDAjbaiAyIMCNXOvtQGEMCNtqIDKgwI1c6+1AYQwI22ogM=",
+    "last_error": null,
+    "metadata": {
+      "connected_by": "pinlo752004@gmail.com"
+    },
+    "created_at": "2026-08-27T02:56:10.349743+00:00"
+  },
+  {
+    "id": "f5852fb7-68e7-419c-b469-64853af3346b",
+    "provider": "stripe",
+    "label": "Stripe account",
+    "status": "connected",
+    "external_id": "default",
+    "access_token_enc": "v1.VgCT9kapjikcieNG.tI2bLg841jYS4HFAwlm6CA==.gkmzeKsIe+eMjrkCHHXmA4X9OI1l2ux3PUijxUkNFFE4OT4BGSd5zmF4mu4XOLfbjnokx01bCeGDG5L+57UMV0XBy7ZB3+hG7ROWhyYa5iImFn20XXkx191knQaYwPFFMSDTKfj5IAOu5aI=",
+    "refresh_token_enc": null,
+    "token_expires_at": null,
+    "last_synced_at": "2026-09-16T06:59:04.035+00:00",
+    "last_cursor": null,
+    "last_error": null,
+    "metadata": {
+      "currencies": [
+        "USD"
+      ],
+      "connected_by": "pinlo752004@gmail.com"
+    },
+    "created_at": "2026-08-27T04:45:05.83929+00:00"
+  },
+  {
+    "id": "621cb0de-f055-44c9-bd49-dac04f62154b",
+    "provider": "quickbooks",
+    "label": "QuickBooks company 9341457793093583",
+    "status": "connected",
+    "external_id": "9341457793093583",
+    "access_token_enc": "v1.tueQzCHuNXR3KkBI.zUfiV4jcLPm33k0adM8NMA==.ydHEYV91VHxF2Qw963kfHbexfAHT2IYZ+zlRHAmdrvHmwQj6kI0ITYQaO/OWboJkpzRkFELCPvRf6dTojmrsUgcqIoOCQR3iQ8bfVNkVbMyRCpzmvzcmcveNz0yGYZIYG5ERN6M6x2vkNj2BRZ9NoC0QQBvhCwC5EIuxEj3IKSJ3RFtpam7It+SLFh7SC003XuWHywyCiX2idszwVFgIUWH5RsFOTSRwM7aUdOUYBi78C8VHYKV6gDdMazF25aEfrcKWC2igQkYRL+DK+LuxVqVpitQ7kYIUiMUxEL0andL1Bc1HGQs9c+7mY/QTTClFpKRFBNj5wXrGfpFkTMJGoRY4N5P0Co6Lr5ni/q/zkedbiOBRtz1J8Vjcp6dG2bwj1mzVWYx2WD4Ua6WDGrnJ7zOdHFsGAQ8Bprzhyno/gP78HIPpildxA4WJ6+5UQF9EBVqtqFZsqwzSjdtSQevzSMFsPu/ZdYKItS67Qm+1Kt4rcca2b0l/5157COkWkC9y+naUCyO9sYyVnNNYA3aGV59SPBtWWLNK31nh42njxH+J9pPqfBMSFVj89mSYmhALia39dsVS8tsAOeJgha8+07B8xz/fFgFoN7pdPuQjW31MK4kKegHI5JT0fkPeA8PzdnracB0vTKx3tlbmMICQmAXfIv6+AVlbxr/b/qOQwiJTfjXtU7E878m0FVcqHaDnFYn7jq5NQ8cfIntwbOfiQJmEwU/77Zb5q3kRZUcYKdbBxgtJBu8WrmmlcxOfPVz2G6ttpiWcaFIqbZHG2AF05K5hTJcUGD3uoXJo",
+    "refresh_token_enc": "v1.0PTx+NBfgAaO/bhE.q53znIRRsgH4jbeahCpjtw==.EZj1uIpn87pLqL/gn1Wkd1hDi00Hb3Jpk8yr0Zj9z9lCrHBjSq9ypw==",
+    "token_expires_at": "2026-09-11T03:17:34.822+00:00",
+    "last_synced_at": "2026-09-11T02:22:24.137+00:00",
+    "last_cursor": null,
+    "last_error": null,
+    "metadata": {
+      "connected_by": "pinlo752004@gmail.com",
+      "qbo_unavailable": {}
+    },
+    "created_at": "2026-08-26T11:06:42.923642+00:00"
+  }
+]

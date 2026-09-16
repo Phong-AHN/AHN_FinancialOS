@@ -40,7 +40,7 @@ import { A, LegalFooter, LegalPage, Section } from '@/components/legal';
  * no longer true. Update it in the same change as the behaviour.
  */
 export const metadata: Metadata = {
-  title: 'Privacy Policy — AHN Financial OS',
+  title: 'Privacy Policy — My Cash Pilot',
   description:
     'How AHN Media handles financial data in its internal financial operations system.',
 };
@@ -52,7 +52,7 @@ export default function PrivacyPage() {
     <LegalPage title="Privacy Policy" updated={UPDATED}>
       <Section title="What this application is">
         <p>
-          AHN Financial OS is an <strong>internal financial operations system</strong> built and
+          My Cash Pilot is an <strong>internal financial operations system</strong> built and
           used by AHN Media LLC and AHN Vietnam Co. Ltd (together, &ldquo;AHN&rdquo;). It is not a
           consumer product and is not offered to the public. It reads AHN&rsquo;s financial
           accounts, and it pays AHN&rsquo;s own staff and contractors — see below.
@@ -260,7 +260,7 @@ export default function PrivacyPage() {
           the grant is ended at both ends.
         </p>
         <p>
-          AHN Financial OS is an independent application. It is not produced, endorsed or supported
+          My Cash Pilot is an independent application. It is not produced, endorsed or supported
           by Intuit Inc., whose handling of QuickBooks data is governed by{' '}
           <A href="https://www.intuit.com/privacy/statement/">Intuit&rsquo;s own privacy statement</A>.
         </p>

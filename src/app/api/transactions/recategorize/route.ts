@@ -48,7 +48,7 @@ export async function POST(request: Request) {
 
   const { data: rows, error } = await db
     .from('transactions')
-    .select('id,description,category,subcategory,direction,counterparty_id,source_system')
+    .select('id,description,category,subcategory,direction,counterparty_id,source_system,raw')
     .or('category.is.null,category.eq.uncategorized')
     .limit(5000);
 
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   }
 
   const candidates = (rows ?? []) as Array<
-    Pick<Transaction, 'id' | 'description' | 'category' | 'subcategory' | 'direction' | 'counterparty_id' | 'source_system'>
+    Pick<Transaction, 'id' | 'description' | 'category' | 'subcategory' | 'direction' | 'counterparty_id' | 'source_system' | 'raw'>
   >;
 
   if (candidates.length === 0) {
@@ -112,6 +112,13 @@ export async function POST(request: Request) {
       ledgerAccount: row.subcategory,
       sourceSystem: row.source_system,
       direction: row.direction,
+      // The same signal ingest uses: the processor's own name for the row.
+      // Without it this pass would re-derive a worse answer than the one the
+      // rows already have, which is the opposite of what re-running is for.
+      providerType:
+        row.raw && typeof (row.raw as { type?: unknown }).type === 'string'
+          ? ((row.raw as { type: string }).type)
+          : null,
     });
 
     if (guess.matchedRule === null || guess.category === 'uncategorized') {

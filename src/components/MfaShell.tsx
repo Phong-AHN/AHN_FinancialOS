@@ -7,7 +7,7 @@ export function MfaShell({ title, children }: { title: string; children: ReactNo
       <div className="w-full max-w-[380px]">
         <div className="mb-7 text-center">
           <h1 className="text-[20px] font-semibold tracking-tight">{title}</h1>
-          <p className="muted mt-1.5 text-[13px]">AHN Financial OS</p>
+          <p className="muted mt-1.5 text-[13px]">My Cash Pilot</p>
         </div>
         <div className="card p-6">{children}</div>
       </div>

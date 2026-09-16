@@ -24,7 +24,7 @@ const files = (await readdir(MIGRATIONS)).filter((f) => f.endsWith('.sql')).sort
 
 const parts = [
   '-- ===========================================================================',
-  '-- AHN Financial OS - complete schema, generated file. Do not edit by hand.',
+  '-- My Cash Pilot - complete schema, generated file. Do not edit by hand.',
   '--',
   '-- Regenerate with:  node scripts/bundle-sql.mjs',
   '-- Source:           supabase/migrations/*.sql',

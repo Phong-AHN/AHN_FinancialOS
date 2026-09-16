@@ -160,7 +160,7 @@ export function toSlackBlocks(alert: FormattedAlert): unknown[] {
       elements: [
         {
           type: 'button',
-          text: { type: 'plain_text', text: 'Open in Financial OS' },
+          text: { type: 'plain_text', text: 'Open in My Cash Pilot' },
           url: alert.url,
         },
       ],
@@ -195,9 +195,9 @@ function shell(title: string, inner: string, url: string, severity: AlertSeverit
 <tr><td style="padding:24px">
 <h1 style="margin:0 0 12px;font-size:18px;line-height:1.35">${escapeHtml(title)}</h1>
 ${inner}
-<p style="margin:24px 0 0"><a href="${escapeHtml(url)}" style="display:inline-block;background:#1f6feb;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:14px">Open in Financial OS</a></p>
+<p style="margin:24px 0 0"><a href="${escapeHtml(url)}" style="display:inline-block;background:#1f6feb;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:14px">Open in My Cash Pilot</a></p>
 </td></tr>
-<tr><td style="padding:0 24px 20px;color:#6b7280;font-size:12px">AHN Financial OS — every dollar in, every dollar out.</td></tr>
+<tr><td style="padding:0 24px 20px;color:#6b7280;font-size:12px">My Cash Pilot — every dollar in, every dollar out.</td></tr>
 </table></body></html>`;
 }
 

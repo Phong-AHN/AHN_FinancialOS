@@ -6,7 +6,7 @@ import { MfaSetup } from '@/components/MfaForms';
 import { MfaShell } from '@/components/MfaShell';
 
 export const dynamic = 'force-dynamic';
-export const metadata: Metadata = { title: 'Set up two-factor sign-in — AHN Financial OS' };
+export const metadata: Metadata = { title: 'Set up two-factor sign-in — My Cash Pilot' };
 
 /**
  * Mandatory authenticator setup — the first thing anybody without one sees.
@@ -34,7 +34,7 @@ export default async function MfaSetupPage(props: {
   return (
     <MfaShell title="Set up two-factor sign-in">
       <p className="muted mb-4 text-[13px] leading-relaxed">
-        AHN Financial OS holds the company&rsquo;s bank data and can send payroll, so every account
+        My Cash Pilot holds the company&rsquo;s bank data and can send payroll, so every account
         signs in with a password <strong>and</strong> a code from an authenticator app. This takes
         about a minute and is only done once.
       </p>

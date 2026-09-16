@@ -1,8 +1,8 @@
 {
-  "name": "ahn-financial-os",
+  "name": "my-cash-pilot",
   "version": "0.1.0",
   "private": true,
-  "description": "AHN Financial OS / AI CFO — every dollar in, every dollar out.",
+  "description": "My Cash Pilot / AI CFO — every dollar in, every dollar out.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

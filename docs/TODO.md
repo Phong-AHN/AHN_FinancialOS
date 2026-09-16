@@ -1,6 +1,6 @@
 # Outstanding work
 
-Tracked against the 7-day schedule in [AHNFinancialOSMVPPlan.md](../AHNFinancialOSMVPPlan.md).
+Tracked against the 7-day schedule in [MyCashPilotMVPPlan.md](../MyCashPilotMVPPlan.md).
 For what is already built, see [DONE.md](DONE.md) — or [CHECKLIST.md](CHECKLIST.md) for the one-page version.
 
 ## Where the plan stands (3 Sep 2026)
@@ -89,7 +89,7 @@ VEEM completes it.
 |---|---|---|
 ### The six values to paste into the Intuit app settings
 
-Replace `APP` with the deployed origin (for example `https://ahn-financial-os.vercel.app`).
+Replace `APP` with the deployed origin (for example `https://my-cash-pilot.vercel.app`).
 
 | Intuit field | Paste this |
 |---|---|

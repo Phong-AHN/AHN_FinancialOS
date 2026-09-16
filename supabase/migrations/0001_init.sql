@@ -1,5 +1,5 @@
 -- ============================================================================
--- AHN Financial OS - Week-1 schema (MVP Plan section 4, Spec section 27)
+-- My Cash Pilot - Week-1 schema (MVP Plan section 4, Spec section 27)
 --
 -- Money rule: every amount is stored as a BIGINT in the currency MINOR unit
 -- (USD cents, VND dong). No floats anywhere in the money path - spec 9 and 28

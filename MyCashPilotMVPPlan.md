@@ -1,4 +1,4 @@
-# AHN Financial OS / AI CFO — MVP Sprint Plan
+# My Cash Pilot / AI CFO — MVP Sprint Plan
 
 **7 days, 1 builder, real money data.**
 

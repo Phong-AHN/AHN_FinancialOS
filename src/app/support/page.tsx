@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import { A, LegalPage, Section } from '@/components/legal';
 
 export const metadata: Metadata = {
-  title: 'Support — AHN Financial OS',
-  description: 'How to get help with AHN Financial OS, and what to include so a problem can be traced.',
+  title: 'Support — My Cash Pilot',
+  description: 'How to get help with My Cash Pilot, and what to include so a problem can be traced.',
 };
 
 const SUPPORT_EMAIL = 'team@asianhustlenetwork.com';
@@ -32,8 +32,8 @@ export default async function SupportPage(props: {
   const provider = /^[a-z]{2,20}$/.test(searchParams.provider ?? '') ? searchParams.provider! : null;
 
   const subject = tid
-    ? `AHN Financial OS — ${provider ?? 'provider'} error ${tid}`
-    : 'AHN Financial OS — support request';
+    ? `My Cash Pilot — ${provider ?? 'provider'} error ${tid}`
+    : 'My Cash Pilot — support request';
   const body = [
     'What were you trying to do?',
     '',
@@ -49,7 +49,7 @@ export default async function SupportPage(props: {
     <LegalPage
       title="Support"
       updated="11 September 2026"
-      lede="AHN Financial OS is built and run by AHN's own team. Support comes from the same people."
+      lede="My Cash Pilot is built and run by AHN's own team. Support comes from the same people."
     >
       <Section title="Contact us">
         <p>

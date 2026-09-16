@@ -1,6 +1,6 @@
 # Security
 
-AHN Financial OS holds a company's bank connections, payroll figures and full
+My Cash Pilot holds a company's bank connections, payroll figures and full
 transaction ledger. This document is the record of what was audited, what was
 found, what was fixed, and — the part most security documents leave out — what
 is still weak and why.

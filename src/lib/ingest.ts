@@ -61,6 +61,8 @@ export async function ingestTransactions(
       ledgerAccount: row.subcategory,
       sourceSystem: row.source_system,
       direction: row.direction,
+      // Stripe states the kind of every balance transaction; trust it.
+      providerType: typeof row.raw?.type === 'string' ? row.raw.type : null,
     });
 
     const currency = (row.currency || DEFAULT_CURRENCY).toUpperCase();
@@ -146,6 +148,8 @@ async function resolveCounterparties(
       ledgerAccount: row.subcategory,
       sourceSystem: row.source_system,
       direction: row.direction,
+      // Stripe states the kind of every balance transaction; trust it.
+      providerType: typeof row.raw?.type === 'string' ? row.raw.type : null,
     });
     const type = row.counterparty_type ?? guess.counterpartyType;
     const normalized = normalizeName(row.counterparty_name);

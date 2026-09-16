@@ -60,7 +60,7 @@ export function Sidebar({
   return (
     <aside className="flex w-[232px] shrink-0 flex-col border-r border-[var(--line)] bg-[var(--surface)]">
       <div className="border-b border-[var(--line)] px-5 py-4">
-        <p className="text-[14px] font-semibold tracking-tight">AHN Financial OS</p>
+        <p className="text-[14px] font-semibold tracking-tight">My Cash Pilot</p>
         <p className="faint mt-0.5 text-[11px]">Every dollar in. Every dollar out.</p>
       </div>
 

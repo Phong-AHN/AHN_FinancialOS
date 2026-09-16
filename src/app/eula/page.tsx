@@ -20,9 +20,9 @@ import { A, LegalFooter, LegalPage, Section } from '@/components/legal';
  *    changes what this document means. See GOVERNING_LAW.
  */
 export const metadata: Metadata = {
-  title: 'End-User License Agreement — AHN Financial OS',
+  title: 'End-User License Agreement — My Cash Pilot',
   description:
-    'Terms on which AHN staff and contractors are licensed to use the AHN Financial OS internal system.',
+    'Terms on which AHN staff and contractors are licensed to use the My Cash Pilot internal system.',
 };
 
 const UPDATED = '11 September 2026';
@@ -42,14 +42,14 @@ export default function EulaPage() {
     <LegalPage
       title="End-User License Agreement"
       updated={UPDATED}
-      lede="This agreement governs use of AHN Financial OS, an internal financial operations system. It is not a consumer product and is not offered for sale."
+      lede="This agreement governs use of My Cash Pilot, an internal financial operations system. It is not a consumer product and is not offered for sale."
     >
       <Section title="1. Who this agreement is between">
         <p>
           This End-User License Agreement (the &ldquo;Agreement&rdquo;) is between{' '}
           <strong>AHN Media LLC</strong> and <strong>AHN Vietnam Co. Ltd</strong> (together,
           &ldquo;AHN&rdquo;, &ldquo;we&rdquo; or &ldquo;us&rdquo;) and each individual granted a
-          login to AHN Financial OS (the &ldquo;Software&rdquo;) — each an &ldquo;Authorised
+          login to My Cash Pilot (the &ldquo;Software&rdquo;) — each an &ldquo;Authorised
           User&rdquo; or &ldquo;you&rdquo;.
         </p>
         <p>

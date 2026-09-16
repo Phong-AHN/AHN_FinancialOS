@@ -1,9 +1,9 @@
-# AHN Financial OS
+# My Cash Pilot
 
 **Every dollar in. Every dollar out.**
 
 Cash visibility and every-dollar alerting for Asian Hustle Network — the week-1 MVP
-described in [AHNFinancialOSMVPPlan.md](AHNFinancialOSMVPPlan.md), built against the
+described in [MyCashPilotMVPPlan.md](MyCashPilotMVPPlan.md), built against the
 full spec in [requirement.txt](requirement.txt).
 
 QuickBooks stays the ledger. This is the operational intelligence layer above it:

@@ -34,7 +34,7 @@ export function LegalPage({
     >
       <h1 style={{ fontSize: 30, fontWeight: 650, letterSpacing: '-0.02em' }}>{title}</h1>
       <p className="muted" style={{ marginTop: 6 }}>
-        AHN Financial OS · Last updated {updated}
+        My Cash Pilot · Last updated {updated}
       </p>
       {lede && (
         <p className="muted" style={{ marginTop: 14, fontSize: 14 }}>

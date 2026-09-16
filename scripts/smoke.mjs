@@ -185,7 +185,7 @@ const pages = [
   ['/subscriptions', ['Recurring charges', 'Monthly recurring', 'Every recurring charge']],
   ['/alerts', ['Rules', 'End-to-end test', 'Delivery log']],
   ['/integrations', ['QuickBooks', 'Plaid', 'Stripe', 'Recent provider errors']],
-  ['/import', ['Import a statement']],
+  ['/import', ['Import a statement', 'From screenshots']],
   ['/payroll', ['Payroll']],
   ['/timesheet', ['My hours']],
   ['/access', ['Who has access']],

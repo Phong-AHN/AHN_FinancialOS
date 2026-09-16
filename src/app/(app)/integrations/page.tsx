@@ -8,11 +8,6 @@ import {
   finverseConfigured,
   finverseEnvironment,
 } from '@/lib/connectors/finverse';
-import {
-  vietinbankConfigProblems,
-  vietinbankConfigured,
-  vietinbankEnvironment,
-} from '@/lib/connectors/vietinbank';
 import { veemConfigProblems, veemConfigured } from '@/lib/connectors/veem';
 import { stripeConfigProblems, stripeConfigured, stripeMode } from '@/lib/connectors/stripe';
 import { formatDateTime, relativeTime } from '@/lib/dates';
@@ -116,7 +111,6 @@ export default async function IntegrationsPage(props: {
   const plaidEnv = plaidEnvironment();
   const stripeProblems = stripeConfigProblems();
   const finverseProblems = finverseConfigProblems();
-  const vtbProblems = vietinbankConfigProblems();
   const veemProblems = veemConfigProblems();
 
   const providers: ProviderMeta[] = [
@@ -129,16 +123,6 @@ export default async function IntegrationsPage(props: {
       envReady: qboConfigured() && qboProblems.length === 0,
       hasCredentials: qboConfigured(),
       problems: qboProblems,
-    },
-    {
-      key: 'vietinbank',
-      name: `VietinBank iConnect (${vietinbankEnvironment()})`,
-      role: 'Vietnamese bank, direct',
-      detail:
-        'The corporate ERP Statement API, written against the bank’s own OpenAPI document. This is the route that reaches AHN’s money — Finverse lists VietinBank and Techcombank as INDIVIDUAL accounts only. Authentication is two apiKey headers rather than OAuth2, and one call returns a whole statement for one account and date range.',
-      envReady: vietinbankConfigured() && vtbProblems.length === 0,
-      hasCredentials: vietinbankConfigured(),
-      problems: vtbProblems,
     },
     {
       key: 'veem',
@@ -357,10 +341,19 @@ export default async function IntegrationsPage(props: {
         {/* ── The sources with no self-serve API ────────────────────────── */}
         <Card>
           <SectionHeader
-            title="Vietnamese banks · VEEM · payroll"
-            subtitle="No self-serve API exists for these, so week 1 brings them in by file."
+            title="VietinBank and other Vietnamese banks · VEEM · payroll"
+            subtitle="Brought in by statement file or by screenshots of the banking app."
             action={<LinkButton href="/import" variant="primary">Import a statement</LinkButton>}
           />
+          {/* The VietinBank API connection was set aside (decision 111): its
+              connector stays in src/lib/connectors/vietinbank.ts, unwired, so
+              it can come back without being rewritten. */}
+          <p className="muted mb-2 text-[13px] leading-relaxed">
+            <strong>VietinBank</strong> is no longer connected by API. Export the statement as CSV,
+            or take screenshots of the transfer list or account history in the VietinBank app and
+            import them — the screenshots are read automatically and you check every row before it
+            is saved.
+          </p>
           <p className="muted text-[13px] leading-relaxed">
             Vietnamese banks grant API access only under a corporate-banking agreement, and VEEM
             routes API access through a partner sales process — neither is obtainable inside a

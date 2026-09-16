@@ -397,3 +397,32 @@ describe('one QuickBooks company at a time', () => {
     expect(purge).toContain("args.includes('--confirm')");
   });
 });
+
+describe('the one AI service is named in the privacy policy', () => {
+  /**
+   * Screenshot import sends images of AHN's bank app to Anthropic. The policy
+   * said "we do not share it with third parties" and would have gone on saying
+   * it; this fails the day an AI SDK is imported without the policy naming who
+   * it sends data to.
+   */
+  it('names Anthropic, because src/ calls its API', () => {
+    const walk = (dir: string): string[] =>
+      fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? walk(`${dir}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}/${e.name}`] : [],
+      );
+    const users = walk('src').filter((f) => read(f).includes("from '@anthropic-ai/sdk"));
+    expect(users.length).toBeGreaterThan(0);
+    const policy = read('src/app/privacy/page.tsx');
+    expect(policy).toContain('<strong>Anthropic</strong>');
+    expect(policy).toMatch(/not stored by this\s+application/);
+    // And only the screenshot reader may talk to it.
+    expect(users).toEqual(['src/lib/image-import/read-screenshot.ts']);
+  });
+
+  it('the screenshot routes never write an image anywhere', () => {
+    for (const f of ['src/app/api/import/screenshot/route.ts', 'src/lib/image-import/read-screenshot.ts']) {
+      const source = read(f);
+      expect(source, f).not.toMatch(/\.storage\b|writeFile|\.upload\(/);
+    }
+  });
+});

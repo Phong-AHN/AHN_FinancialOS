@@ -178,3 +178,21 @@ describe('zero-decimal currencies (VND)', () => {
     }
   });
 });
+
+describe('amounts carrying both a thousands mark and a decimal mark', () => {
+  // The Vietnamese preset says "comma is the decimal". A statement exported
+  // US-style — "9,396,000.00" — used to be read by stripping every dot first,
+  // which left nothing parseable, and every row of the file was rejected.
+  it('lets the rightmost mark be the decimal point, whatever the preset says', () => {
+    expect(parseAmount('9,396,000.00', { decimalSeparator: ',', currency: 'VND' })).toBe(9_396_000);
+    expect(parseAmount('9.396.000,00', { decimalSeparator: '.', currency: 'VND' })).toBe(9_396_000);
+    expect(parseAmount('1,234.56', { decimalSeparator: ',', currency: 'USD' })).toBe(1234.56);
+  });
+
+  it('leaves single-mark VND amounts exactly as before', () => {
+    // The screenshot format: commas between thousands, no decimals.
+    expect(parseAmount('6,500,000', { decimalSeparator: ',', currency: 'VND' })).toBe(6_500_000);
+    expect(parseAmount('6.500.000', { decimalSeparator: ',', currency: 'VND' })).toBe(6_500_000);
+    expect(parseAmount('275.000', { decimalSeparator: ',', currency: 'VND' })).toBe(275_000);
+  });
+});

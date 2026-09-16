@@ -146,7 +146,9 @@ VEEM_CLIENT_ID / VEEM_CLIENT_SECRET / VEEM_ACCOUNT_ID / VEEM_API_BASE
 VEEM_FUNDING_METHOD_ID     which account pays outgoing payroll. Optional — Veem
 VEEM_FUNDING_METHOD_TYPE   uses the default when unset. List them with
                            GET /veem/v1.2/account/fundingMethods
-VIETINBANK_CLIENT_ID / VIETINBANK_CLIENT_SECRET / VIETINBANK_ACCOUNT_NUMBER
+ANTHROPIC_API_KEY          reads bank screenshots on the Import page. Optional — the
+                           screenshot section says it is not set up without it.
+VIETINBANK_CLIENT_ID / VIETINBANK_CLIENT_SECRET / VIETINBANK_ACCOUNT_NUMBER   (NOT IN USE — API set aside, decision 111)
 VIETINBANK_PROVIDER_ID / VIETINBANK_MERCHANT_ID / VIETINBANK_ENV
 VIETINBANK_API_BASE / VIETINBANK_ACCOUNT_TYPE / VIETINBANK_CHANNEL / VIETINBANK_MODEL
 FINVERSE_CLIENT_ID / FINVERSE_CLIENT_SECRET / FINVERSE_ENV / FINVERSE_REDIRECT_URI
@@ -277,6 +279,41 @@ the fake one and its bank accounts merged into the sandbox's — silently.
 Until Plaid and Stripe are also on production keys, the cash figures mix real
 QuickBooks data with simulated bank and payment data.
 
+### Importing VietinBank statements
+
+The VietinBank API connection is set aside. Statements come in two ways, both
+on the Import page, both into the same `transactions` table as everything else:
+
+- **CSV export** — preset *Vietnamese bank statement*. Day-first dates, and
+  Ghi nợ / Ghi có columns are recognised by name. Amounts written `6,500,000`,
+  `6.500.000` or `9,396,000.00` all read correctly.
+- **Screenshots of the VietinBank app** — the transfer list (*Yêu cầu của tôi →
+  Đã duyệt → Chuyển tiền*) or the account history. Needs `ANTHROPIC_API_KEY`.
+
+How screenshot import behaves:
+
+1. Choose the account, add the screenshots (several overlapping captures of one
+   long list are fine), and press *Read*. Each image is read by Claude
+   (`claude-opus-5`), one request per image.
+2. Every row is shown beside its screenshot. The amount the model parsed is
+   checked against the amount as printed; the date against the calendar; the
+   status against the bank's own words. A row that fails any check is left out
+   until you correct it — and only rows the bank shows as **Thành công** (or
+   posted-history lines) can be saved at all.
+3. *Save* sends only the ticked rows. The server re-applies every rule, then
+   the rows take the CSV import's path: an import record, the same
+   categorisation, duplicate detection and alerts.
+
+The same transfer seen in two screenshots, or a screenshot imported twice, is
+kept once: a row's identity is its date, time to the second, direction and
+amount. A transfer that later arrives in a CSV export is flagged on Reconcile
+as a possible duplicate, and the export is the row kept.
+
+Screenshots are sent to Anthropic's API and are **not stored** by this
+application. Anthropic does not train on API data by default and deletes it
+within 30 days. Each image is one paid request; reading is rate-limited to 40
+images an hour per person.
+
 ### Two-factor sign-in is mandatory
 
 Every account signs in with a password (or email link) **and** a six-digit code
@@ -348,7 +385,7 @@ answers describe what the code does; `tests/retry.test.ts` and
 | Uses **multi-factor authentication**? | **Yes — mandatory for every account.** Password or email link, then a TOTP code from an authenticator app. Enforced by the database (migration 0040): every table carries a restrictive policy requiring `aal2`, so a stolen password reads nothing even straight against the Supabase API. |
 | Uses **Captcha**? | **No.** Access is invite-only, mandatory two-factor stops a guessed or phished password from reaching data, and Supabase Auth rate-limits sign-in attempts. A captcha would add friction without closing a gap those leave open. |
 | Uses **WebSocket**? | **No.** Nothing subscribes to Supabase Realtime or opens a socket. The Content-Security-Policy no longer allows `wss:` at all, so none could be opened. |
-| Is Intuit data used by or shown to **anyone other than that customer**? | **No.** It is shown only to AHN's own staff, each with a named two-factor login, and each table is further restricted by role in the database. Alerts go only to AHN's own Slack workspace, email addresses and phone numbers, through Slack, Resend and Twilio as delivery services — named in the privacy policy. Nothing is sold, shared, or sent to any AI service. |
+| Is Intuit data used by or shown to **anyone other than that customer**? | **No.** It is shown only to AHN's own staff, each with a named two-factor login, and each table is further restricted by role in the database. Alerts go only to AHN's own Slack workspace, email addresses and phone numbers, through Slack, Resend and Twilio as delivery services — named in the privacy policy. Nothing is sold or shared. **No Intuit data is sent to any AI service** — the one AI step in the system reads screenshots of AHN's Vietnamese bank app that staff upload, which contain no QuickBooks data. |
 | Which **QuickBooks Online versions**? | **Simple Start, Essentials, Plus and Advanced.** Every entity read exists in all four except Bill and BillPayment, which Simple Start lacks; those are skipped for a Simple Start company instead of failing its sync. Run against the live sandbox, which is **QuickBooks Online Plus**. |
 | Handles users **gaining or losing** version-specific features? | **Yes.** A feature the subscription lacks (Intuit code 5030) is classified as `unavailable`: skipped, not retried, not reported as a fault, and asked for again once a day — so a downgrade never breaks the sync and an upgrade is picked up within a day, with its history. Data already imported is kept either way. |
 | Uses **multicurrency / sales tax**? | **None of the above.** Sales tax is not read — cash is taken from `TotalAmt`, which already includes it. Amounts are stored in each row's own `CurrencyRef`, but no multicurrency QuickBooks company has been tested, and the form asks only for features "verified and thoroughly tested". Multicurrency cannot be switched off once enabled, so it was not enabled on the sandbox to find out. |

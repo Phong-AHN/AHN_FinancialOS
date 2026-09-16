@@ -48,51 +48,18 @@ Ordered so the things with the longest lead time start first.
 | 🔴 | **Apply for Plaid Production access** | dashboard.plaid.com → Team Settings → Company → request Production. **Select exactly two products: Transactions and Balance.** Use case for Transactions is *SMB bookkeeping*; for Balance it is *Other* — every other Balance option is a payments use case and this system never moves money. Privacy policy is live at `/privacy` (public, no login). | Plaid **retired** Development; sandbox proves the pipeline meanwhile. |
 | 🔴 | **Get the QuickBooks *production* key pair** | developer.intuit.com → your app → **Production Settings** → Keys. Intuit issues a **separate pair per environment**, so the sandbox keys will not work. Intuit will not release them until the app settings are complete — **every URL it asks for now exists**, see the table below. | Everything currently in the app came from a *sandbox* company. None of it is AHN's real money. |
 | 🔴 | **Fill in the Intuit app settings** | Six URLs, all live and all reachable without signing in. Replace `APP` with the deployed origin. Full table with what each one does: [DEPLOYMENT.md](DEPLOYMENT.md#the-five-urls-intuit-asks-for). | This was the blocker on production keys. Nothing here needs code any more. |
-| 🔴 | **Register at [openapi.vietinbank.vn](https://openapi.vietinbank.vn) and send five values** | Create an account → create an application → the Client ID and Secret are issued **instantly**, no approval wait. The secret is shown once. | **The connector is written and tested against the bank's own example response.** These five values are the only thing between it and live Vietnamese corporate data. |
+| 🔴 | **Set `ANTHROPIC_API_KEY`** for screenshot import | console.anthropic.com → API keys → add it to Vercel and `.env.local`. | VietinBank now comes in as CSV exports or app screenshots (the API is set aside, decision 111). Without the key the screenshot section says it is not set up; CSV import works regardless. |
+| 🟡 | **Run the screenshot test once on the sample** | Save the VietinBank screenshot you sent as `vietinbank-sample.png`, then `SCREENSHOT_TEST=1 SCREENSHOT_SAMPLE=./vietinbank-sample.png npx vitest run tests/screenshot-read.integration.test.ts`. | The only step not yet run against the real model. One paid request. |
 | 🟡 | **Get Finverse credentials** | [finverse.com](https://www.finverse.com/bank-data-api) → dashboard. | The fallback, and probably not the right one: Finverse lists VietinBank and Techcombank as *individual accounts only*. Worth a direct question to them before spending time here. |
 | ⚪ | **Techcombank Open API** | No public self-serve sandbox — apply through business banking. | Blocked on the bank. CSV import covers the meantime and now imports correctly. |
 
-### What I need from you for VietinBank
+### VietinBank — API set aside
 
-The API specification arrived, so the connector is **written**: request builder,
-statement parser, account and transaction mapping, and the sync wired into the
-scheduler. 23 tests cover it, including the bank's own documented example
-response.
-
-## 2. The five VietinBank values
-
-**The sandbox has been reached.** A live call returns
-`401 Invalid client id or secret` in 230ms — which proves the host, the path,
-the method and the header-based authentication are all correct. The values
-currently in `.env.local` are `apiKey located in header`, the Swagger
-document's *description* of the header rather than a key. Only real credentials
-are missing.
-
-| | What | Goes in |
-|---|---|---|
-| 🔴 | `VIETINBANK_CLIENT_ID`, `VIETINBANK_CLIENT_SECRET`, `VIETINBANK_ACCOUNT_NUMBER`, `VIETINBANK_PROVIDER_ID`, `VIETINBANK_MERCHANT_ID` | openapi.vietinbank.vn → your application | **empty** — the five values above. `/integrations` names exactly which are missing. |
-| 🔴 | **Client Secret** | `VIETINBANK_CLIENT_SECRET` — sent as `X-IBM-Client-Secret`. Shown **once**, at creation |
-| 🔴 | **The account number** to pull | `VIETINBANK_ACCOUNT_NUMBER` — the statement API answers for one account per call |
-| 🔴 | **Mã nhà cung cấp dịch vụ** | `VIETINBANK_PROVIDER_ID` — VietinBank assigns it |
-| 🔴 | **Mã merchant** | `VIETINBANK_MERCHANT_ID` — VietinBank assigns it |
-
-The last two matter more than they look: a wrong one is answered with a status
-code **inside a 200 response**, not an HTTP error, so it fails quietly. The
-connector reads the status and reports it, but it cannot invent the right value.
-
-**Then press Connect on `/integrations`.** It asks for one week of statement and
-reads the status code out of the body — proving the keys, the account number and
-the partner identifiers all work before anything is stored.
-
-Two things that may still come back from the bank:
-
-- **Signing.** The request schema has a `signature` field but documents neither
-  the algorithm nor what to sign. Requests go unsigned. If the sandbox refuses
-  them, ask the portal for the signing documentation — that needs an **RSA key
-  pair**, not another secret.
-- **A production host.** The specification lists the sandbox URL for both
-  "production" and "development". Going live needs the real address in
-  `VIETINBANK_API_BASE`; there is deliberately no default to fall back on.
+The VietinBank API connection is no longer being pursued (decision 111). The
+connector (`src/lib/connectors/vietinbank.ts`) stays in the repository, unwired,
+so it can come back without being rewritten; its five values are no longer
+needed. VietinBank statements arrive as CSV exports or app screenshots on the
+Import page — see DEPLOYMENT.md → *Importing VietinBank statements*.
 
 ## 2b. VEEM credentials
 

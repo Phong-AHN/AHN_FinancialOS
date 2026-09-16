@@ -62,9 +62,14 @@ const SOURCE_RANK: Record<SourceSystem, number> = {
   // record when AHN has also booked the payment there.
   veem: 5,
   csv_vn_bank: 6,
-  csv_veem: 7,
-  csv_payroll: 8,
-  manual: 9,
+  // A screenshot read by an AI model and checked by a person is weaker
+  // evidence than the bank's own export of the same transaction: the export
+  // came from the bank's system, the screenshot went through a camera roll, a
+  // model and a human eye. When both arrive, the export is the one kept.
+  image_vn_bank: 7,
+  csv_veem: 8,
+  csv_payroll: 9,
+  manual: 10,
 };
 
 type Candidate = Pick<

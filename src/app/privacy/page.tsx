@@ -11,7 +11,7 @@ import { A, LegalFooter, LegalPage, Section } from '@/components/legal';
  * the code: which providers are read, what is stored, what is encrypted and
  * how, and that there is no export path.
  *
- * IT HAS NOW HAD TO CHANGE FOUR TIMES, each in the same direction — the page
+ * IT HAS NOW HAD TO CHANGE FIVE TIMES, each in the same direction — the page
  * claiming something the software did not do:
  *
  *   - It said "we do not move money", true when written and false the day
@@ -27,6 +27,9 @@ import { A, LegalFooter, LegalPage, Section } from '@/components/legal';
  *     share it with third parties" and named none of them. Found while
  *     answering Intuit's question about who can see a customer's data
  *     (decision 109); the services are now named, with what they carry.
+ *   - Screenshot import (decision 111) sends images of the bank app to
+ *     Anthropic to be read — the first time any AHN data goes to an AI
+ *     service. Named here, with what Anthropic does with it, in the same change.
  *   - Error logs arrived (decision 107) with a promise that they may be shared
  *     with a provider's support. "We do not share it with third parties" was
  *     about financial data and stays true, but a new kind of record that CAN
@@ -76,11 +79,12 @@ export default function PrivacyPage() {
             <strong>Stripe</strong> — balance transactions and processing fees.
           </li>
           <li>
-            <strong>VietinBank, Finverse, VEEM</strong> — Vietnamese bank statements and
-            cross-border payments, where configured.
+            <strong>Finverse, VEEM</strong> — Vietnamese bank accounts and cross-border payments,
+            where configured.
           </li>
           <li>
-            <strong>Files AHN uploads</strong> — bank and payroll statements imported as CSV.
+            <strong>Files AHN uploads</strong> — bank and payroll statements imported as CSV, and
+            screenshots of AHN&rsquo;s own banking app (see below).
           </li>
         </ul>
         <p>
@@ -107,8 +111,9 @@ export default function PrivacyPage() {
       <Section title="What we never do">
         <ul>
           <li>
-            We do not sell data, and we do not share it with third parties — beyond the delivery
-            services, named below, that carry alerts to AHN&rsquo;s own staff.
+            We do not sell data, and we do not share it with third parties — beyond the services
+            named below that deliver alerts to AHN&rsquo;s own staff and read the bank screenshots
+            AHN staff upload.
           </li>
           <li>We do not use it for advertising or marketing of any kind.</li>
           <li>
@@ -188,6 +193,23 @@ export default function PrivacyPage() {
           These services deliver the message; they are not given access to the system or to
           anything beyond the alert itself. Data from a provider&rsquo;s test environment — a
           QuickBooks sandbox company, for instance — never produces an alert.
+        </p>
+      </Section>
+
+      <Section title="Screenshots of AHN&rsquo;s banking app">
+        <p>
+          AHN staff can import transactions by uploading screenshots of AHN&rsquo;s own banking
+          app. Each screenshot is sent to <strong>Anthropic</strong>&rsquo;s API, where an AI model
+          reads the transactions shown on it; a member of AHN&rsquo;s staff then checks every row
+          against the screenshot before anything is saved.
+        </p>
+        <p>
+          The screenshot is used only for that reading and is <strong>not stored by this
+          application</strong> — only the rows a person approves are kept. Under Anthropic&rsquo;s
+          commercial terms, data sent through its API is not used to train its models by default
+          and is deleted within 30 days; see{' '}
+          <A href="https://privacy.anthropic.com/">Anthropic&rsquo;s privacy centre</A>. No
+          QuickBooks data is ever sent to Anthropic or to any other AI service.
         </p>
       </Section>
 

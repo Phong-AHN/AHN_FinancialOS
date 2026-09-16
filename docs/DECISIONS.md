@@ -3858,6 +3858,156 @@ neither, so it is true for both.
 
 ---
 
+## 111. VietinBank by CSV and by screenshot; the API set aside
+
+AHN stopped pursuing the VietinBank API. Statements now arrive as CSV exports,
+which the importer already handled, or as screenshots of the VietinBank app —
+the new part. The connector stays in the repository, unwired, so it can come
+back without being rewritten.
+
+### A model reads; the model is not trusted
+
+Each screenshot is sent to `claude-opus-5` with a strict output schema, one
+image per request. The schema asks for every figure twice: as printed
+(`amount_text: "6,500,000 VND"`, `datetime_text: "30/08/2026 16:29:12"`) and as
+parsed. `review.ts` then checks the model against itself — the parsed amount
+must equal the printed one to the dong, the sign on screen must agree with the
+direction, the date must exist and not be in the future, and the status must be
+one of the bank's own words for a completed transfer. A misread digit therefore
+surfaces as a disagreement between two things the model said, not as a
+plausible wrong number.
+
+Nothing is saved until a person has looked at every row beside its screenshot.
+Rows that fail a check are left out until corrected; a failed, pending or
+unrecognised status cannot be saved at all. The commit route re-applies every
+rule on the server, because the browser is where the corrections happen and
+therefore where a mistake — or a tampered request — would come from.
+
+### The sample screenshot decided two rules
+
+- **The transaction number belongs to the card BELOW the divider.** On
+  VietinBank's request list each card starts with its "Số giao dịch"; the first
+  card in the sample is cut off above its number, and the number printed just
+  under it (1031926H25810864) is the next card's. The prompt says so, and the
+  live test asserts the cut-off card does not borrow it.
+- **Identity cannot depend on that number.** A row's key is its date, its time
+  to the second, direction and amount — so the same transfer seen cut-off in one
+  screenshot and whole in the next is one transaction, and importing a
+  screenshot twice adds nothing. Where the screen shows no seconds, the
+  number, the counterparty's account or its name is added as a tiebreak.
+
+### Where it sits
+
+- A new source, `image_vn_bank`, ranked just below `csv_vn_bank`: when a
+  transfer arrives both ways, the bank's own export is the row kept.
+- Rows go through `manual_imports` and `ingestTransactions` exactly as a CSV
+  does — same categorisation, duplicate detection and alerts.
+- The screenshot is never stored. It is read and dropped; what the ledger keeps
+  is the approved row, with the model's reading alongside any correction.
+
+### What running it found
+
+- **The commit route was refused by RLS.** `manual_imports` has no insert
+  policy on purpose — imports are written by the server with the service role,
+  after the capability check — and the new route had used the user-scoped
+  client. The CSV route already did it the right way; the new one now matches.
+- **"6.500.000 đ" read as nothing.** The shared parser knew "VND" and "₫" but
+  not "đ", the way most Vietnamese apps write it.
+- **"9,396,000.00" was rejected by the CSV importer's Vietnamese preset**, which
+  treats a comma as the decimal point and stripped the dots first. When a number
+  carries both marks, the rightmost is now the decimal point whatever the preset
+  says. Found while checking that "switch to CSV" would actually work.
+- **One failed screenshot locked the whole batch** — the save button waited for
+  every image to be read, and a failed one never would be. Failed screenshots
+  are now reported, retryable and removable.
+
+### What is not yet proved
+
+The model has not read the real sample: there is no `ANTHROPIC_API_KEY` in this
+environment. Everything around it is tested — the checks against a hand
+transcription of the sample, both routes at runtime (with a deliberately invalid
+key, which also proved a refused key becomes a clear message), and the ledger
+rows those routes write. `tests/screenshot-read.integration.test.ts` runs the
+sample through Claude and asserts both transfers to the dong, once a key and the
+saved image are available.
+
+### The privacy policy, a fifth time
+
+This is the first time any AHN data goes to an AI service. The policy now names
+Anthropic, says what is sent and that it is not stored here, and states
+Anthropic's terms for API data: not used for training by default, deleted
+within 30 days. The Intuit answer that "no data is sent to any AI service" was
+narrowed to what it was always about — no Intuit data is — and a test fails if
+an AI SDK appears anywhere but the screenshot reader.
+
+---
+
+## 112. Screenshot import, second pass: what a model can actually see
+
+A review of decision 111's feature for the ways real screenshots differ from the
+one sample. None of these showed on the sample; each would have on the first
+week of real use.
+
+### Images the model would have read as a blur
+
+Claude reads an image at full detail up to 2576 px on the long edge **and** up
+to 4784 visual tokens (⌈w/28⌉ × ⌈h/28⌉); past either, the API downscales it. The
+browser only enforced the first. A scrolling capture of a month of transfers —
+1170 × 8000 — was shrunk to 377 px wide, digits a few pixels tall.
+`src/lib/image-import/slices.ts` now plans each upload: an image that fits within
+a 25% shrink is scaled once; a taller one is cut into overlapping tiles at a
+readable width, each within both limits, each overlap taller than a card, and
+each tile is its own row in the list ("name (2/4)"). Cards repeated across tiles
+merge as overlapping screenshots always have.
+
+### Money in the wrong unit or currency
+
+- **Saving sent the account's currency with every row.** A USD figure read into
+  a VND account went to the server labelled VND, and the server's check compared
+  the account with itself. Rows now carry their own currency, and a mismatch
+  blocks the row in the browser as well as on the server.
+- **The amount box showed minor units.** $12.50 appeared as "1250"; saving an
+  untouched-looking edit made it $1,250.00. It now shows the amount as printed.
+- **"6.500.000 đ" was not recognised as dong** by the currency check: `\b` in a
+  JavaScript regex knows only ASCII letters, so `\bđ\b` never matched.
+
+### Rows that could not be saved, or were saved twice
+
+- **A typed "9:03" failed on the server** with a schema message nobody could tie
+  to the time box. Times are normalised to "09:03" as typed; an impossible time
+  blocks the row where it is typed.
+- **A card cut off above its date stayed as a second, blocked copy** of the same
+  transfer seen whole in the next screenshot — without a date it could not share
+  its key. It now folds into a dated twin with the same amount, direction and
+  transaction number, account or name, and stays for a person to date otherwise.
+- **Two rows corrected into the same values** in one save are one transaction;
+  the server keeps one and reports `duplicatesInBatch`.
+- **More non-successful statuses**: "Đã từ chối", "Hết hạn", "Lỗi", "Chờ xác
+  nhận", "Chưa duyệt", "Không hợp lệ".
+
+### Limits that failed healthy requests
+
+- **60 seconds, no retry.** A dense screenshot at full effort can take longer.
+  The route now allows 300 s (Vercel's maximum with fluid compute on every plan)
+  and the SDK two attempts of up to 120 s.
+- **An HTML error page read as JSON** ("Unexpected token '<'"). Vercel's 413 and
+  504 pages now become sentences about size and time.
+- **40 reads an hour** was a handful of tiled captures; now 150. Up to three
+  screenshots are read at once instead of one after another.
+
+### The audit trail names the model that answered
+
+With server-side fallback, a different model can answer. Each row now records
+the model the API reported, not the one requested.
+
+### Still not proved
+
+Unchanged from 111: no `ANTHROPIC_API_KEY` here, so the model has not read the
+sample. The tiling is tested as arithmetic and the drawing code as a build; the
+first real long capture is worth watching.
+
+---
+
 ## What was NOT changed
 
 The plan's week-1 boundary held. Subscription intelligence (spec §8) has since been

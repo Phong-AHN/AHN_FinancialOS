@@ -3,7 +3,7 @@
 One page. [DONE.md](DONE.md) has the detail, [TODO.md](TODO.md) has what is left,
 [DECISIONS.md](DECISIONS.md) has the reasoning.
 
-_8 Sep 2026 · 28 pages (20 behind a login, 8 outside it) · 38 API routes · 40 migrations · 711 tests · 110 decisions_
+_15 Sep 2026 · 28 pages (20 behind a login, 8 outside it) · 40 API routes · 41 migrations · 776 tests · 112 decisions_
 
 ---
 
@@ -38,7 +38,7 @@ _8 Sep 2026 · 28 pages (20 behind a login, 8 outside it) · 38 API routes · 40
 ## Integrations
 
 - [x] QuickBooks · Plaid · Stripe · CSV import
-- [x] VietinBank iConnect — written, request shape proved against the bank
+- [x] VietinBank — **CSV export and app screenshots** (read by Claude, every row checked by a person); the iConnect API connector is kept but set aside
 - [x] Finverse — the aggregator fallback for Vietnamese banks
 - [x] VEEM — API connector; only `Complete` counts as cash, in-flight becomes a commitment
 - [x] **Payroll disbursement through VEEM** — two-person approval, ceilings, dry run by default
@@ -85,7 +85,7 @@ _8 Sep 2026 · 28 pages (20 behind a login, 8 outside it) · 38 API routes · 40
 ## Waiting on you, not on code
 
 - ✅ QuickBooks **approved for production** — follow DEPLOYMENT.md → *Switching QuickBooks from the sandbox to the real company*
-- 🔴 Plaid Production · 5 VietinBank values · VEEM keys
+- 🔴 Plaid Production · VEEM keys · `ANTHROPIC_API_KEY` for screenshot import
 - 🔴 Paste the six Intuit app URLs (all built and live) — [DEPLOYMENT.md](DEPLOYMENT.md#the-five-urls-intuit-asks-for)
 - 🟡 Confirm the EULA's governing jurisdiction, and have a lawyer read it
 - 🔴 **Set up your authenticator** — your next sign-in requires it

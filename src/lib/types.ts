@@ -35,6 +35,12 @@ export type SourceSystem =
    */
   | 'veem'
   | 'csv_vn_bank'
+  /**
+   * Read from a screenshot of a Vietnamese banking app by an AI model, then
+   * checked by a person before it was saved — migration 0041. Kept apart from
+   * `csv_vn_bank` so an auditor can tell a picture from a bank export.
+   */
+  | 'image_vn_bank'
   | 'csv_veem'
   | 'csv_payroll'
   | 'manual';

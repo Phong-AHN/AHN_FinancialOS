@@ -110,7 +110,13 @@ export function parseAmount(
     if (isGroupedInteger(s)) return applySign(Number(s.replace(/[.,]/g, '')), negative);
   }
 
-  const sep = opts.decimalSeparator ?? inferDecimalSeparator(s);
+  // When BOTH marks appear, the rightmost is the decimal point in every
+  // convention there is — "9,396,000.00" and "9.396.000,00" alike — so it
+  // outranks the preset. Without this, the Vietnamese preset (comma decimal)
+  // read "9,396,000.00" by stripping every dot first and produced nothing at
+  // all: every row of a statement exported with ".00" was rejected.
+  const hasBoth = s.includes('.') && s.includes(',');
+  const sep = hasBoth ? inferDecimalSeparator(s) : (opts.decimalSeparator ?? inferDecimalSeparator(s));
   if (sep === ',') {
     s = s.replace(/\./g, '').replace(',', '.');
   } else {

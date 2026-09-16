@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireOwner } from '@/lib/auth';
 import { CsvImporter } from '@/components/CsvImporter';
+import { ScreenshotImporter } from '@/components/ScreenshotImporter';
+import { screenshotImportConfigured } from '@/lib/image-import/read-screenshot';
 import { NewAccountForm } from '@/components/NewAccountForm';
 import { formatDateTime } from '@/lib/dates';
 import type { Company, FinancialAccount, ManualImport } from '@/lib/types';
@@ -35,7 +37,7 @@ export default async function ImportPage() {
     <>
       <PageHeader
         title="Import a statement"
-        subtitle="Vietnamese banks, VEEM and payroll have no self-serve API — this is how their dollars reach the dashboard."
+        subtitle="Vietnamese banks, VEEM and payroll have no self-serve API — a statement file or screenshots of the banking app is how their money reaches the dashboard."
       />
 
       <div className="mb-6">
@@ -56,7 +58,14 @@ export default async function ImportPage() {
           <NewAccountForm companies={companies} />
         </Card>
       ) : (
-        <CsvImporter accounts={accounts} canImport />
+        <>
+          <CsvImporter accounts={accounts} canImport />
+          {/* Screenshots take the same road into the ledger as a CSV file,
+              with a person checking every row in between (decision 111). */}
+          <div className="mt-4">
+            <ScreenshotImporter accounts={accounts} configured={screenshotImportConfigured()} />
+          </div>
+        </>
       )}
 
       {accounts.length > 0 && (

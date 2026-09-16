@@ -4,7 +4,7 @@
   "private": true,
   "description": "My Cash Pilot / AI CFO — every dollar in, every dollar out.",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3777",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",

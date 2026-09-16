@@ -43,6 +43,7 @@ const NAV: NavItem[] = [
   { href: '/alerts', label: 'Alerts', hint: 'Rules and delivery log', needs: 'see_all_money' },
   { href: '/integrations', label: 'Integrations', hint: 'QuickBooks, Plaid, Stripe', needs: 'manage_integrations' },
   { href: '/access', label: 'Who has access', hint: 'Roles, and Slack accounts' },
+  { href: '/security', label: 'Your sign-in', hint: 'Password and authenticator' },
   { href: '/audit', label: 'Audit log', hint: 'Who changed what', needs: 'read_audit' },
 ];
 

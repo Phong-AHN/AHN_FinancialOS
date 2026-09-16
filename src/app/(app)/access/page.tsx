@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireSession } from '@/lib/auth';
+import { ResetMfaButton } from '@/components/ResetMfaButton';
 import { AccessEditor } from '@/components/AccessEditor';
 import { ROLE_LABELS, capabilitiesOf } from '@/lib/capabilities';
 import type { UserRole } from '@/lib/types';
@@ -23,7 +24,7 @@ export default async function AccessPage() {
   const supabase = createSupabaseServerClient();
   const [session, usersRes] = await Promise.all([
     requireSession(),
-    supabase.from('users').select('id,email,full_name,role,slack_user_id,created_at').order('created_at'),
+    supabase.from('users').select('id,email,full_name,role,slack_user_id,auth_id,created_at').order('created_at'),
   ]);
 
   /*
@@ -41,6 +42,7 @@ export default async function AccessPage() {
     full_name: string | null;
     role: UserRole;
     slack_user_id: string | null;
+    auth_id: string | null;
   }>;
 
   const canManage = capabilitiesOf(session.user.role).includes('manage_people');
@@ -87,13 +89,18 @@ export default async function AccessPage() {
             {users.map((u) => (
               <li key={u.id} className="p-4">
                 {canManage ? (
-                  <AccessEditor
-                    userId={u.id}
-                    email={u.email}
-                    role={u.role}
-                    slackUserId={u.slack_user_id}
-                    isSelf={u.id === session.user.id}
-                  />
+                  <>
+                    <AccessEditor
+                      userId={u.id}
+                      email={u.email}
+                      role={u.role}
+                      slackUserId={u.slack_user_id}
+                      isSelf={u.id === session.user.id}
+                    />
+                    {u.id !== session.user.id && u.auth_id && (
+                      <ResetMfaButton userId={u.id} email={u.email} />
+                    )}
+                  </>
                 ) : (
                   <div>
                     <p className="text-[13px] font-medium">{u.email}</p>

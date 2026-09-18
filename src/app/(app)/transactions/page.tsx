@@ -22,6 +22,7 @@ import {
   PageHeader,
   ReconBadge,
 } from '@/components/ui';
+import { ExportTransactionsButton } from '@/components/ExportTransactionsButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,6 +100,8 @@ export default async function TransactionsPage(props: {
             ? 'Nothing matches these filters.'
             : `${total.toLocaleString('en-US')} transaction${total === 1 ? '' : 's'}${activeFilters ? ` · ${activeFilters}` : ''}`
         }
+        // Exports what the filters select, not the page being viewed.
+        action={total > 0 ? <ExportTransactionsButton label="Export CSV" /> : undefined}
       />
 
       {/* ── Filter bar: a plain GET form, so filters stay in the URL ────── */}

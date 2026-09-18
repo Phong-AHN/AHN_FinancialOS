@@ -9,6 +9,7 @@ import { currentMonthRange, formatMonthLabel, monthStart, today } from '@/lib/da
 import { categoryLabel } from '@/lib/categorize';
 import { CashTrend } from '@/components/CashTrend';
 import { SyncButton } from '@/components/SyncButton';
+import { ExportTransactionsButton } from '@/components/ExportTransactionsButton';
 import {
   Callout,
   Card,
@@ -54,6 +55,12 @@ export default async function HomePage() {
   const trend = computeCashTrend(cash.totalUsdMinor, transactions, accounts, asOf, 30);
   const attention = buildNeedsAttention(snapshot, transactions);
   const recent = transactions.slice(0, 8);
+
+  // Summed over every account, not over the eight rows the table shows.
+  const cashAccounts = cash.byAccount.filter((b) => b.account.include_in_cash);
+  const cashTxnCount = cashAccounts.reduce((sum, b) => sum + b.txnCount, 0);
+  const excludedFromCash = cash.byAccount.filter((b) => !b.account.include_in_cash);
+  const excludedUsdMinor = excludedFromCash.reduce((sum, b) => sum + b.balanceUsdMinor, 0);
 
   // Tone follows the HEADLINE figure, which is gross runway while cash-positive.
   // Colouring on net runway would paint a company with 3.5 months of cash green
@@ -297,6 +304,44 @@ export default async function HomePage() {
                 </tr>
               ))}
             </tbody>
+            {/*
+              The total covers EVERY account, not the eight rows above it.
+              A footer that summed only what fits on screen would disagree with
+              the cash tile at the top of this page the moment a ninth account
+              exists, and a reader who catches two totals disagreeing stops
+              believing both.
+
+              Balances are left blank in the account's own currency: adding
+              dong to dollars produces a number that means nothing. The USD
+              column is the one that can honestly be added up.
+            */}
+            <tfoot>
+              <tr className="border-t-2 border-[var(--line)] font-semibold">
+                <td>
+                  Total
+                  <span className="faint ml-2 text-[11px] font-normal">
+                    {cashAccounts.length} account{cashAccounts.length === 1 ? '' : 's'} counted as cash
+                    {cash.byAccount.length > 8 && `, ${cash.byAccount.length} in all`}
+                  </span>
+                </td>
+                <td />
+                <td className="faint text-right text-[11px] font-normal">mixed currencies</td>
+                <td className="tabular text-right">{formatMoney(cash.totalUsdMinor)}</td>
+                <td className="tabular text-right">{cashTxnCount}</td>
+              </tr>
+              {excludedFromCash.length > 0 && (
+                <tr className="muted">
+                  <td className="text-[12px] font-normal">
+                    Excluded from cash — {excludedFromCash.length} account
+                    {excludedFromCash.length === 1 ? '' : 's'} (credit cards, loans, investments)
+                  </td>
+                  <td />
+                  <td />
+                  <td className="tabular text-right text-[12px]">{formatMoney(excludedUsdMinor)}</td>
+                  <td />
+                </tr>
+              )}
+            </tfoot>
           </table>
         )}
       </Card>
@@ -306,7 +351,13 @@ export default async function HomePage() {
         <div className="p-5 pb-0">
           <SectionHeader
             title="Latest movement"
-            action={<LinkButton href="/transactions">All transactions</LinkButton>}
+            subtitle="The eight most recent. Export takes everything, not just these."
+            action={
+              <div className="flex gap-2">
+                <ExportTransactionsButton />
+                <LinkButton href="/transactions">All transactions</LinkButton>
+              </div>
+            }
           />
         </div>
         {recent.length === 0 ? (

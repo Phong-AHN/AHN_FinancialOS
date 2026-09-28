@@ -423,10 +423,32 @@ New project → **Deploy from GitHub repo** → this repository.
 | Setting | Value | Why |
 |---|---|---|
 | **Root Directory** | `worker` | The only setting that is not optional. Without it Railway builds from the repo root, installs Next.js, React and everything else for a worker that imports one Node built-in — and Nixpacks, seeing a Next.js app, may try `next build`, which needs the app's environment and fails confusingly. |
-| **Start Command** | *(leave blank)* | [`worker/railway.json`](../worker/railway.json) sets `node index.mjs`. |
-| **Healthcheck Path** | *(leave blank)* | Same file sets `/health`. |
-| **Builder** | Nixpacks (default) | |
-| **Public Networking** | enable | So `/health` is reachable. Nothing else is served. |
+| **Start Command** | *(leave blank)* | [`worker/railway.json`](../worker/railway.json) sets `node index.mjs --once`. |
+| **Cron Schedule** | *(leave blank)* | Same file sets `*/10 * * * *`. |
+| **Serverless** | on | Required on Railway's free plan, and harmless here — see below. |
+| **Healthcheck Path** | *(leave blank)* | A cron run serves nothing; a health check would fail it. |
+| **Builder** | Railpack (default) | |
+| **Public Networking** | off | Nothing is served in cron mode. |
+
+### Why it runs as a Railway cron job, not a loop
+
+Railway's free plan requires every service to be **serverless**: a service that
+has sent nothing for five minutes is put to sleep, and only traffic *arriving*
+wakes it. The worker's loop sends a sync every ten minutes and receives nothing,
+so on the free plan it would go to sleep between syncs and never wake — its
+timers stop, the dashboard stops updating, and nothing reports an error.
+(Railway docs: *Serverless* and *Cron Jobs*.)
+
+So on Railway the worker runs with `--once`: Railway starts it every ten
+minutes, it does whatever is due and exits. With no idle container there is
+nothing to put to sleep. Daily jobs fire on the one run that lands in the first
+ten minutes of their local hour; Railway can start a run a few minutes late, and
+a run delayed by more than ten minutes can skip that day's digest. The sync — the
+job that matters — runs on every pass regardless.
+
+The plain loop (`node index.mjs`, no flag) still works unchanged on a host that
+keeps processes alive: a VPS, Render, Fly, or a paid Railway plan with serverless
+off. Only there does `/health` exist.
 
 [`worker/`](../worker/) is self-contained — its own `package.json` with **zero
 dependencies** and its own `railway.json`. `npm install` there is instant, and
@@ -444,9 +466,9 @@ Add these under **Variables**:
 
 | Variable | Value | |
 |---|---|---|
-| `APP_URL` | `https://your-app.vercel.app` | required |
+| `APP_URL` | `https://www.mycashpilot.co` | required |
 | `CRON_SECRET` | **the same string the app has** | required |
-| `SYNC_INTERVAL_MINUTES` | `10` | optional |
+| `SYNC_INTERVAL_MINUTES` | `10` | loop mode only — in cron mode the Cron Schedule decides |
 | `DIGEST_HOUR` | `9` | optional, local hour |
 | `WEEKLY_DIGEST_DAY` | `1` (Monday) | optional |
 | `TZ` | `Asia/Ho_Chi_Minh` | optional — decides what "9am" means |
@@ -477,7 +499,22 @@ compromise of the scheduler exposes far less than a compromise of the app.
 
 ### Confirming it works
 
-`https://<worker>.up.railway.app/health` returns the state of each job:
+**In cron mode**, open the service's **Deployments** tab: a new run appears every
+ten minutes. Each one ends **Completed** when every call succeeded and **Failed**
+when any did — the worker exits 1 on failure precisely so it shows here. Open a
+run's logs to see what it did:
+
+```
+[…] one pass — https://www.mycashpilot.co, local time Mon Sep 21 2026 09:00:04 GMT+0700 (Asia/Ho_Chi_Minh)
+[…] sync ok  3 new
+[…] digest:daily ok  2 sent
+[…] done
+```
+
+A run stuck in **Active** blocks every later one — Railway skips a scheduled run
+while the previous is still going.
+
+**In loop mode**, `https://<worker>.up.railway.app/health` returns the state of each job:
 
 ```json
 {

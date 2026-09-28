@@ -38,6 +38,14 @@ const SYNC_INTERVAL_MINUTES = clampNumber(process.env.SYNC_INTERVAL_MINUTES, 10,
 const DIGEST_HOUR = clampNumber(process.env.DIGEST_HOUR, 9, 0, 23);
 const WEEKLY_DIGEST_DAY = clampNumber(process.env.WEEKLY_DIGEST_DAY, 1, 0, 6);
 const PORT = clampNumber(process.env.PORT, 8080, 1, 65535);
+/**
+ * One pass, then exit — for a host that runs this on ITS schedule rather than
+ * keeping it alive: Railway cron, a system crontab, a scheduled GitHub Action.
+ * See `runOnce` below for why this mode exists.
+ */
+const ONCE = process.argv.includes('--once');
+/** The cron step, in minutes. A daily job fires on the run that lands in its first window. */
+const CRON_WINDOW_MINUTES = clampNumber(process.env.CRON_WINDOW_MINUTES, 10, 5, 60);
 
 if (!APP_URL || !CRON_SECRET) {
   console.error(
@@ -158,130 +166,185 @@ function summarise(body) {
   }
 }
 
-// ─── Schedule ───────────────────────────────────────────────────────────────
-
-const syncMs = SYNC_INTERVAL_MINUTES * 60_000;
-setInterval(() => void callEndpoint('sync', '/api/cron/sync'), syncMs);
-// Run once at boot so a deploy does not wait a full interval for the first pull.
-void callEndpoint('sync', '/api/cron/sync');
+// ─── One pass (cron mode) ───────────────────────────────────────────────────
 
 /**
- * Digests fire on a wall-clock hour, so the loop checks every minute rather
- * than counting intervals: a container restart must not shift the daily digest,
- * and an interval-based schedule drifts every time the process is redeployed.
+ * Railway's free plan requires every service to be serverless: it is put to
+ * sleep once it has sent nothing for five minutes, and woken only by traffic
+ * ARRIVING. The loop below sends a sync every ten minutes and receives nothing,
+ * so under that rule it goes to sleep between syncs and never wakes — its
+ * timers simply stop, and the dashboard quietly stops updating. Nothing errors.
  *
- * `lastFiredKey` makes each digest at-most-once per day, so a restart inside
- * the digest hour does not send it twice.
+ * Railway's own cron is the fit: it starts this process on a schedule, the
+ * process does what is due and exits, and there is no idle container to sleep.
+ * Schedules are evaluated in UTC and can start a few minutes late, so the daily
+ * jobs fire on whichever run lands in the first CRON_WINDOW_MINUTES of their
+ * local hour — with a `*\/10` schedule that is exactly one run a day.
+ *
+ * Order within a pass is deliberate and matches the loop: rates before the
+ * digest, so the morning summary never quotes yesterday's rate.
  */
-let lastDailyKey = null;
-let lastWeeklyKey = null;
-
-setInterval(() => {
+async function runOnce() {
   const now = new Date();
-  if (now.getHours() !== DIGEST_HOUR || now.getMinutes() !== 0) return;
+  const hour = now.getHours();
+  const inWindow = now.getMinutes() < CRON_WINDOW_MINUTES;
 
-  const dayKey = now.toISOString().slice(0, 10);
+  log(`one pass — ${APP_URL}, local time ${now.toString()} (${resolvedTimeZone()})`);
 
-  if (lastDailyKey !== dayKey) {
-    lastDailyKey = dayKey;
-    void callEndpoint('digest:daily', '/api/cron/digest?period=daily');
+  if (inWindow && hour === (DIGEST_HOUR + 23) % 24) {
+    await callEndpoint('exchange-rates', '/api/cron/exchange-rates');
   }
 
-  if (now.getDay() === WEEKLY_DIGEST_DAY && lastWeeklyKey !== dayKey) {
-    lastWeeklyKey = dayKey;
-    void callEndpoint('digest:weekly', '/api/cron/digest?period=weekly');
+  await callEndpoint('sync', '/api/cron/sync');
+
+  if (inWindow && hour === DIGEST_HOUR) {
+    await callEndpoint('digest:daily', '/api/cron/digest?period=daily');
+    if (now.getDay() === WEEKLY_DIGEST_DAY) {
+      await callEndpoint('digest:weekly', '/api/cron/digest?period=weekly');
+    }
   }
-}, 60_000);
 
-/**
- * The price-increase sweep, once a day, an hour after the digest.
- *
- * Kept off the sync tick deliberately: it re-reads three years of outflows to
- * rebuild the recurring-charge picture, and a price changes monthly at most.
- * Running it every few minutes would spend most of the sync budget rediscovering
- * the same answer. It is deduped by vendor and change date, so firing once a day
- * still announces every rise exactly once.
- *
- * An hour after the digest so the two never contend for the same minute.
- */
-let lastPriceKey = null;
-
-setInterval(() => {
-  const now = new Date();
-  if (now.getHours() !== (DIGEST_HOUR + 1) % 24 || now.getMinutes() !== 0) return;
-
-  const dayKey = now.toISOString().slice(0, 10);
-  if (lastPriceKey === dayKey) return;
-  lastPriceKey = dayKey;
-  void callEndpoint('price-increases', '/api/cron/price-increases');
-}, 60_000);
-
-/**
- * Exchange rates, once a day, an hour BEFORE the digest.
- *
- * The order is the point. Every USD figure the digest reports is converted
- * through this table, so refreshing after it would mean the morning summary is
- * always quoting yesterday's rate. An hour is far more than the job needs and
- * leaves room for a retry before anybody reads anything.
- *
- * Off the sync tick for a second reason beyond staleness: Vietcombank asks for
- * no more than one request every five minutes, and the sync runs more often
- * than that. A feed that gets the company rate-limited is worse than one that
- * runs once a day.
- */
-let lastFxKey = null;
-
-setInterval(() => {
-  const now = new Date();
-  if (now.getHours() !== (DIGEST_HOUR + 23) % 24 || now.getMinutes() !== 0) return;
-
-  const dayKey = now.toISOString().slice(0, 10);
-  if (lastFxKey === dayKey) return;
-  lastFxKey = dayKey;
-  void callEndpoint('exchange-rates', '/api/cron/exchange-rates');
-}, 60_000);
-
-// ─── Health ─────────────────────────────────────────────────────────────────
-
-createServer((req, res) => {
-  if (req.url === '/health' || req.url === '/') {
-    const unhealthy = Object.values(state.jobs).some(
-      (j) => j.runs > 0 && j.lastError !== null,
-    );
-    res.writeHead(unhealthy ? 503 : 200, { 'content-type': 'application/json' });
-    res.end(
-      JSON.stringify(
-        {
-          ok: !unhealthy,
-          target: APP_URL,
-          syncEveryMinutes: SYNC_INTERVAL_MINUTES,
-          digestHour: DIGEST_HOUR,
-          weeklyDigestDay: WEEKLY_DIGEST_DAY,
-          // What the scheduler is really using, not what TZ was set to.
-          timezone: resolvedTimeZone(),
-          nextDigestLocalTime: `${String(DIGEST_HOUR).padStart(2, '0')}:00 ${resolvedTimeZone()}`,
-          localTimeNow: new Date().toString(),
-          ...state,
-        },
-        null,
-        2,
-      ),
-    );
-    return;
+  if (inWindow && hour === (DIGEST_HOUR + 1) % 24) {
+    await callEndpoint('price-increases', '/api/cron/price-increases');
   }
-  res.writeHead(404).end();
-}).listen(PORT, () => {
-  log(
-    `scheduler up — ${APP_URL}, sync every ${SYNC_INTERVAL_MINUTES}m, ` +
-      `rates at ${String((DIGEST_HOUR + 23) % 24).padStart(2, '0')}:00, ` +
-      `digest at ${String(DIGEST_HOUR).padStart(2, '0')}:00 ${resolvedTimeZone()}, ` +
-      `health on :${PORT}`,
-  );
-});
 
-for (const signal of ['SIGTERM', 'SIGINT']) {
-  process.on(signal, () => {
-    log(`${signal} — shutting down`);
-    process.exit(0);
-  });
+  // A non-zero exit marks the run failed in Railway's deployment list, which is
+  // the only place a cron job's failure is visible without reading logs.
+  const failed = Object.entries(state.jobs).filter(([, j]) => j.runs > 0 && j.lastError !== null);
+  if (failed.length) log(`done with failures: ${failed.map(([name]) => name).join(', ')}`);
+  else log('done');
+  process.exit(failed.length ? 1 : 0);
 }
+
+function startLoop() {
+  // ─── Schedule ───────────────────────────────────────────────────────────────
+
+  const syncMs = SYNC_INTERVAL_MINUTES * 60_000;
+  setInterval(() => void callEndpoint('sync', '/api/cron/sync'), syncMs);
+  // Run once at boot so a deploy does not wait a full interval for the first pull.
+  void callEndpoint('sync', '/api/cron/sync');
+
+  /**
+   * Digests fire on a wall-clock hour, so the loop checks every minute rather
+   * than counting intervals: a container restart must not shift the daily digest,
+   * and an interval-based schedule drifts every time the process is redeployed.
+   *
+   * `lastFiredKey` makes each digest at-most-once per day, so a restart inside
+   * the digest hour does not send it twice.
+   */
+  let lastDailyKey = null;
+  let lastWeeklyKey = null;
+
+  setInterval(() => {
+    const now = new Date();
+    if (now.getHours() !== DIGEST_HOUR || now.getMinutes() !== 0) return;
+
+    const dayKey = now.toISOString().slice(0, 10);
+
+    if (lastDailyKey !== dayKey) {
+      lastDailyKey = dayKey;
+      void callEndpoint('digest:daily', '/api/cron/digest?period=daily');
+    }
+
+    if (now.getDay() === WEEKLY_DIGEST_DAY && lastWeeklyKey !== dayKey) {
+      lastWeeklyKey = dayKey;
+      void callEndpoint('digest:weekly', '/api/cron/digest?period=weekly');
+    }
+  }, 60_000);
+
+  /**
+   * The price-increase sweep, once a day, an hour after the digest.
+   *
+   * Kept off the sync tick deliberately: it re-reads three years of outflows to
+   * rebuild the recurring-charge picture, and a price changes monthly at most.
+   * Running it every few minutes would spend most of the sync budget rediscovering
+   * the same answer. It is deduped by vendor and change date, so firing once a day
+   * still announces every rise exactly once.
+   *
+   * An hour after the digest so the two never contend for the same minute.
+   */
+  let lastPriceKey = null;
+
+  setInterval(() => {
+    const now = new Date();
+    if (now.getHours() !== (DIGEST_HOUR + 1) % 24 || now.getMinutes() !== 0) return;
+
+    const dayKey = now.toISOString().slice(0, 10);
+    if (lastPriceKey === dayKey) return;
+    lastPriceKey = dayKey;
+    void callEndpoint('price-increases', '/api/cron/price-increases');
+  }, 60_000);
+
+  /**
+   * Exchange rates, once a day, an hour BEFORE the digest.
+   *
+   * The order is the point. Every USD figure the digest reports is converted
+   * through this table, so refreshing after it would mean the morning summary is
+   * always quoting yesterday's rate. An hour is far more than the job needs and
+   * leaves room for a retry before anybody reads anything.
+   *
+   * Off the sync tick for a second reason beyond staleness: Vietcombank asks for
+   * no more than one request every five minutes, and the sync runs more often
+   * than that. A feed that gets the company rate-limited is worse than one that
+   * runs once a day.
+   */
+  let lastFxKey = null;
+
+  setInterval(() => {
+    const now = new Date();
+    if (now.getHours() !== (DIGEST_HOUR + 23) % 24 || now.getMinutes() !== 0) return;
+
+    const dayKey = now.toISOString().slice(0, 10);
+    if (lastFxKey === dayKey) return;
+    lastFxKey = dayKey;
+    void callEndpoint('exchange-rates', '/api/cron/exchange-rates');
+  }, 60_000);
+
+  // ─── Health ─────────────────────────────────────────────────────────────────
+
+  createServer((req, res) => {
+    if (req.url === '/health' || req.url === '/') {
+      const unhealthy = Object.values(state.jobs).some(
+        (j) => j.runs > 0 && j.lastError !== null,
+      );
+      res.writeHead(unhealthy ? 503 : 200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify(
+          {
+            ok: !unhealthy,
+            target: APP_URL,
+            syncEveryMinutes: SYNC_INTERVAL_MINUTES,
+            digestHour: DIGEST_HOUR,
+            weeklyDigestDay: WEEKLY_DIGEST_DAY,
+            // What the scheduler is really using, not what TZ was set to.
+            timezone: resolvedTimeZone(),
+            nextDigestLocalTime: `${String(DIGEST_HOUR).padStart(2, '0')}:00 ${resolvedTimeZone()}`,
+            localTimeNow: new Date().toString(),
+            ...state,
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    res.writeHead(404).end();
+  }).listen(PORT, () => {
+    log(
+      `scheduler up — ${APP_URL}, sync every ${SYNC_INTERVAL_MINUTES}m, ` +
+        `rates at ${String((DIGEST_HOUR + 23) % 24).padStart(2, '0')}:00, ` +
+        `digest at ${String(DIGEST_HOUR).padStart(2, '0')}:00 ${resolvedTimeZone()}, ` +
+        `health on :${PORT}`,
+    );
+  });
+
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, () => {
+      log(`${signal} — shutting down`);
+      process.exit(0);
+    });
+  }
+}
+
+if (ONCE) void runOnce();
+else startLoop();

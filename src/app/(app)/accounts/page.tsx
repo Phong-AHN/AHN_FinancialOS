@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { requireSession, sessionCan } from '@/lib/auth';
+import { AccountEditor } from '@/components/AccountEditor';
 import { loadDashboard } from '@/lib/data';
 import { loadRateStatus, missingRates } from '@/lib/fx';
 import { RateEditor } from '@/components/RateEditor';
@@ -54,6 +55,7 @@ export default async function AccountsPage() {
     loadRateStatus(supabase, asOf),
   ]);
   const canEdit = sessionCan(session, 'move_money');
+  const inactive = accounts.filter((a) => !a.is_active);
 
   const companies = (companiesRes.data ?? []) as Company[];
   const companyName = (id: string) => companies.find((c) => c.id === id)?.name ?? 'Unknown entity';
@@ -292,6 +294,21 @@ export default async function AccountsPage() {
                         Balance as of {formatDateTime(b.account.reported_balance_at)}
                       </span>
                     )}
+                    {canEdit && (
+                      <AccountEditor
+                        account={{
+                          id: b.account.id,
+                          name: b.account.name,
+                          type: b.account.type,
+                          currency: b.account.currency,
+                          sourceSystem: b.account.source_system,
+                          includeInCash: b.account.include_in_cash,
+                          isActive: b.account.is_active,
+                          openingBalanceMinor: b.account.opening_balance_minor,
+                          reportedBalanceMinor: b.account.reported_balance_minor,
+                        }}
+                      />
+                    )}
                   </td>
                   <td className="muted">{companyName(b.account.company_id)}</td>
                   <td className="muted capitalize">{b.account.type.replace(/_/g, ' ')}</td>
@@ -322,6 +339,50 @@ export default async function AccountsPage() {
           </table>
         )}
       </Card>
+
+      {/*
+        Inactive accounts are excluded from every total — which also means they
+        vanish from the table above the moment they are marked inactive. Without
+        this section that would be a one-way door: nothing left on screen to
+        switch back on.
+      */}
+      {inactive.length > 0 && (
+        <Card padded={false} className="mb-6">
+          <div className="p-5 pb-0">
+            <SectionHeader
+              title="No longer in use"
+              subtitle="Kept for their history. Counted in no total, and their transactions still appear in exports."
+            />
+          </div>
+          <ul className="divide-y divide-[var(--line)]">
+            {inactive.map((a) => (
+              <li key={a.id} className="p-4">
+                <p className="text-[13px] font-medium">
+                  {a.name}
+                  <span className="faint ml-2 text-[11.5px] capitalize">
+                    {a.type.replace(/_/g, ' ')} · {a.currency} · {a.source_system.replace(/_/g, ' ')}
+                  </span>
+                </p>
+                {canEdit && (
+                  <AccountEditor
+                    account={{
+                      id: a.id,
+                      name: a.name,
+                      type: a.type,
+                      currency: a.currency,
+                      sourceSystem: a.source_system,
+                      includeInCash: a.include_in_cash,
+                      isActive: a.is_active,
+                      openingBalanceMinor: a.opening_balance_minor,
+                      reportedBalanceMinor: a.reported_balance_minor,
+                    }}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <FormulaNote>
         <strong>Our records</strong> = opening balance + every non-duplicate transaction on the

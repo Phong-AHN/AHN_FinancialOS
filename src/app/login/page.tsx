@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { LoginForm } from '@/components/LoginForm';
+import { signInMessage } from '@/lib/auth-messages';
 import { AuthHashHandler } from '@/components/AuthHashHandler';
 import { getAssurance, getSession, mfaPathFor } from '@/lib/auth';
 import { isSupabaseConfigured } from '@/lib/supabase/server';
@@ -48,9 +49,11 @@ export default async function LoginPage(props: {
         {/* Completes an implicit-flow email link, whose token never reaches the server. */}
         <AuthHashHandler />
 
-        {searchParams.error && (
-          <p className="mt-4 text-center text-[12.5px]" style={{ color: 'var(--outflow)' }}>
-            {searchParams.error}
+        {/* The callback redirects here with whatever the provider said; it
+            gets the same wording as a failure caught in the browser. */}
+        {signInMessage(searchParams.error) && (
+          <p role="alert" className="mt-4 text-center text-[12.5px] leading-relaxed" style={{ color: 'var(--outflow)' }}>
+            {signInMessage(searchParams.error)?.text}
           </p>
         )}
 

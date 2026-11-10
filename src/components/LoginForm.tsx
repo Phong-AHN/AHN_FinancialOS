@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
 import { buttonClass } from '@/components/ui';
+import { magicLinkSent, signInMessage } from '@/lib/auth-messages';
 
 type Mode = 'password' | 'magic';
 
@@ -34,27 +35,36 @@ export function LoginForm({ next = '/' }: { next?: string }) {
         const { error } = await supabase.auth.signInWithOtp({
           email,
           options: {
+            // Access is by invitation. Left at its default, this call CREATES
+            // an account for any address typed into the box and emails it a
+            // link - a way for a stranger to make the company's portal send
+            // mail on their behalf, and a pile of accounts nobody granted.
+            shouldCreateUser: false,
             // The callback launders `next` through `safeNextPath` before it
             // redirects, so a tampered link cannot land somebody off-site.
             emailRedirectTo: `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(next)}`,
           },
         });
-        setMessage(
-          error
-            ? { ok: false, text: error.message }
-            : { ok: true, text: 'Check your inbox for the sign-in link.' },
-        );
+        // An address with no account reports success too: see the second rule
+        // in auth-messages.ts. Only a real failure - a rate limit, a network
+        // error - says anything else.
+        const problem = error ? signInMessage(error.message) : null;
+        setMessage(problem ? { ok: false, text: problem.text } : { ok: true, text: magicLinkSent(email) });
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
-          setMessage({ ok: false, text: error.message });
+          setMessage({ ok: false, text: signInMessage(error.message)?.text ?? 'Sign-in failed.' });
+          // Clear the password, keep the email: the next attempt is almost
+          // always the same address with a different password.
+          setPassword('');
         } else {
           router.push(next);
           router.refresh();
         }
       }
     } catch (err) {
-      setMessage({ ok: false, text: err instanceof Error ? err.message : 'Sign-in failed.' });
+      const problem = signInMessage(err instanceof Error ? err.message : null);
+      setMessage({ ok: false, text: problem?.text ?? 'Sign-in failed. Try again.' });
     } finally {
       setBusy(false);
     }
@@ -104,7 +114,8 @@ export function LoginForm({ next = '/' }: { next?: string }) {
 
       {message && (
         <p
-          className="text-center text-[12.5px]"
+          role={message.ok ? 'status' : 'alert'}
+          className="text-center text-[12.5px] leading-relaxed"
           style={{ color: message.ok ? 'var(--inflow)' : 'var(--outflow)' }}
         >
           {message.text}

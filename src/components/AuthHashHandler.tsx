@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createSupabaseBrowserClient } from '@/lib/supabase/client';
+import { signInMessage } from '@/lib/auth-messages';
 
 /**
  * Catches the implicit-flow sign-in that the server callback cannot see.
@@ -31,7 +32,7 @@ export function AuthHashHandler() {
     const errorDescription = params.get('error_description');
 
     if (errorDescription) {
-      setStatus(errorDescription);
+      setStatus(signInMessage(errorDescription)?.text ?? errorDescription);
       window.history.replaceState(null, '', window.location.pathname);
       return;
     }
@@ -50,7 +51,7 @@ export function AuthHashHandler() {
       window.history.replaceState(null, '', window.location.pathname);
 
       if (error) {
-        setStatus(error.message);
+        setStatus(signInMessage(error.message)?.text ?? error.message);
       } else {
         router.push('/');
         router.refresh();

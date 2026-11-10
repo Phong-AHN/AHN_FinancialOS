@@ -2,8 +2,9 @@
 
 import { useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { buttonClass, Callout } from '@/components/ui';
+import { buttonClass, Callout, LinkButton, Money, SectionHeader } from '@/components/ui';
 import { formatMoney, parseAmount, toMajor, toMinor } from '@/lib/money';
+import { CATEGORY_LABELS, categoryLabel } from '@/lib/categorize';
 import { planSlices } from '@/lib/image-import/slices';
 import {
   ISSUE_TEXT,
@@ -42,7 +43,23 @@ interface Edit {
   time?: string;
   counterpartyName?: string;
   description?: string;
+  /**
+   * What the person says this is. Empty means "leave it to the rules", which
+   * is the default and a perfectly good answer: classifying fifty rows by hand
+   * before saving them is how an import stops being used.
+   */
+  category?: string;
 }
+
+/**
+ * The categories offered on a row, in the order a person scanning a bank
+ * statement meets them. "Uncategorized" is left out deliberately: choosing it
+ * and leaving the row on Auto reach the same place, and an option that does
+ * nothing is an option that gets picked by mistake.
+ */
+const CATEGORY_CHOICES = Object.entries(CATEGORY_LABELS).filter(
+  ([value]) => value !== 'uncategorized',
+);
 
 /** Under Vercel's 4.5 MB request limit, with room for the form fields. */
 const MAX_UPLOAD = 4_000_000;
@@ -98,6 +115,19 @@ async function readJson(res: Response): Promise<Record<string, unknown>> {
   }
 }
 
+interface SavedRow {
+  id: string | null;
+  txnDate: string;
+  amountMinor: number;
+  currency: string;
+  direction: TxnDirection;
+  counterpartyName: string | null;
+  description: string | null;
+  category: string | null;
+  /** It was in the ledger before this import — the same screenshot, twice. */
+  alreadyPresent: boolean;
+}
+
 /** Screenshots read at once. Each is a paid request; three keeps a batch moving without a burst. */
 const READ_CONCURRENCY = 3;
 
@@ -108,6 +138,9 @@ const RELEASED_BY_EDIT: Record<keyof Edit, RowIssue[]> = {
   time: [],
   counterpartyName: ['readings_differ'],
   description: ['readings_differ'],
+  // Choosing a category says nothing about whether the amount or the date was
+  // read correctly, so it clears no warning.
+  category: [],
 };
 const INFORMATIONAL: RowIssue[] = ['cut_off', 'readings_differ'];
 
@@ -129,6 +162,12 @@ export function ScreenshotImporter({
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ tone: 'brand' | 'outflow'; title: string; body: string } | null>(null);
+  /**
+   * What the ledger holds from the last save, read back from the server. Kept
+   * after the screenshots are cleared: the person has just transcribed a
+   * statement by hand and the first thing they want is to see where it went.
+   */
+  const [saved, setSaved] = useState<SavedRow[] | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   const addFiles = async (list: FileList | File[]) => {
@@ -276,6 +315,7 @@ export function ScreenshotImporter({
     if (!account || selected.length === 0) return;
     setBusy(true);
     setMessage(null);
+    setSaved(null);
     try {
       const payload = {
         accountId: account.id,
@@ -297,6 +337,7 @@ export function ScreenshotImporter({
             statusText: r.statusText,
             postedScreen: r.postedScreen,
             readBy: r.readBy ?? null,
+            category: edits[r.key]?.category || null,
             edited: e.edited,
             original: e.edited
               ? {
@@ -323,6 +364,7 @@ export function ScreenshotImporter({
         inserted?: number;
         skipped?: number;
         flaggedAsPossibleDuplicate?: number;
+        saved?: SavedRow[];
       };
       if (!json.ok) {
         setMessage({ tone: 'outflow', title: json.error ?? 'Nothing was saved.', body: (json.refusals ?? []).join(' ') });
@@ -335,6 +377,7 @@ export function ScreenshotImporter({
           `${json.skipped ? `${json.skipped} were already there and were not added again. ` : ''}` +
           `${json.flaggedAsPossibleDuplicate ? `${json.flaggedAsPossibleDuplicate} look like duplicates of rows from another source and are waiting on the Reconcile page.` : ''}`,
       });
+      setSaved(json.saved ?? []);
       shots.forEach((s) => URL.revokeObjectURL(s.url));
       setShots([]);
       setEdits({});
@@ -471,6 +514,7 @@ export function ScreenshotImporter({
                   <th className="pr-2 text-right">Amount</th>
                   <th className="pr-2">Other party</th>
                   <th className="pr-2">Description</th>
+                  <th className="pr-2">Category</th>
                   <th className="pr-2">From</th>
                   <th>Check</th>
                 </tr>
@@ -547,6 +591,24 @@ export function ScreenshotImporter({
                         </div>
                       </td>
                       <td className="pr-2">
+                        <select
+                          value={edits[r.key]?.category ?? ''}
+                          onChange={(ev) => edit(r.key, { category: ev.target.value })}
+                          className="w-[170px]"
+                          aria-label="Category for this transaction"
+                        >
+                          <option value="">Auto — let the rules decide</option>
+                          {CATEGORY_CHOICES.map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        {edits[r.key]?.category === 'transfer' && (
+                          <div className="faint mt-1">kept out of revenue and spending</div>
+                        )}
+                      </td>
+                      <td className="pr-2">
                         {r.images.map((n) => (
                           <a key={n} href={shots[n]?.url} target="_blank" rel="noreferrer" className="mr-1 underline underline-offset-2">
                             #{n + 1}
@@ -598,6 +660,49 @@ export function ScreenshotImporter({
           <Callout tone={message.tone} title={message.title}>
             {message.body}
           </Callout>
+        </div>
+      )}
+
+      {/*
+        The ledger's own copy of what was just filed, not an echo of what was
+        sent. A row that was already there says so, and the category column
+        shows what each row actually ended up with — a row left on Auto is
+        classified by the rules at ingest, and this is where that answer first
+        becomes visible.
+      */}
+      {saved && saved.length > 0 && (
+        <div className="mt-4">
+          <SectionHeader
+            title={`In ${account?.name ?? 'the account'} now`}
+            subtitle="Read back from the ledger after saving."
+            action={<LinkButton href="/transactions">Open transactions</LinkButton>}
+          />
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-[12.5px]">
+              <thead>
+                <tr className="faint text-left text-[11px] uppercase tracking-wide">
+                  <th className="py-2 pr-2">Date</th>
+                  <th className="pr-2 text-right">Amount</th>
+                  <th className="pr-2">Other party</th>
+                  <th className="pr-2">Category</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--line)]">
+                {saved.map((row, i) => (
+                  <tr key={row.id ?? `${row.txnDate}-${i}`}>
+                    <td className="tabular py-2 pr-2 whitespace-nowrap">{row.txnDate}</td>
+                    <td className="pr-2 text-right">
+                      <Money minor={row.amountMinor} currency={row.currency} direction={row.direction} />
+                    </td>
+                    <td className="pr-2">{row.counterpartyName ?? row.description ?? '—'}</td>
+                    <td className="pr-2">{categoryLabel(row.category)}</td>
+                    <td className="faint">{row.alreadyPresent ? 'already there' : 'added'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

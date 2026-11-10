@@ -148,6 +148,17 @@ VEEM_FUNDING_METHOD_TYPE   uses the default when unset. List them with
                            GET /veem/v1.2/account/fundingMethods
 ANTHROPIC_API_KEY          reads bank screenshots on the Import page. Optional — the
                            screenshot section says it is not set up without it.
+SCREENSHOT_PROVIDER        "anthropic" or "gemini". Empty uses whichever key is
+                           set, preferring Anthropic. An unrecognised value
+                           stops screenshot import rather than choosing for you.
+GEMINI_API_KEY             the other reader. Only ever a BILLED project: the
+                           free tier's terms let Google use what is sent to it
+                           to improve its products and let humans read it.
+GEMINI_PAID_TIER           must be exactly "true" or no screenshot is sent to
+                           Google. There is no way to tell a key's tier from the
+                           key, so somebody confirms it here, once, deliberately.
+GEMINI_SCREENSHOT_MODEL    optional. Default gemini-3.8-flash; set it to compare
+                           readers on the same sample image.
 VIETINBANK_CLIENT_ID / VIETINBANK_CLIENT_SECRET / VIETINBANK_ACCOUNT_NUMBER   (NOT IN USE — API set aside, decision 111)
 VIETINBANK_PROVIDER_ID / VIETINBANK_MERCHANT_ID / VIETINBANK_ENV
 VIETINBANK_API_BASE / VIETINBANK_ACCOUNT_TYPE / VIETINBANK_CHANNEL / VIETINBANK_MODEL

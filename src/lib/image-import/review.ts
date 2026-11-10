@@ -209,7 +209,20 @@ const fold = (s: string) =>
     .toLowerCase()
     .trim();
 
-const SUCCESS = ['thanh cong', 'giao dich thanh cong', 'hoan thanh', 'da hoan thanh', 'success', 'successful', 'completed'];
+const SUCCESS = [
+  'thanh cong',
+  'giao dich thanh cong',
+  'hoan thanh',
+  'da hoan thanh',
+  'success',
+  'successful',
+  'completed',
+  // Techcombank's wording for a transfer that has gone through.
+  'hoan tat',
+  'giao dich da hoan tat',
+  'chuyen tien thanh cong',
+  'da chuyen tien thanh cong',
+];
 const NOT_SUCCESS = [
   'that bai',
   'khong thanh cong',

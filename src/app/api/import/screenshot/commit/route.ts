@@ -4,7 +4,8 @@ import { callerKey, crossOriginRefusal, rateLimitRefusal } from '@/lib/security'
 import { createSupabaseAdminClient, isAdminConfigured } from '@/lib/supabase/admin';
 import { ingestTransactions } from '@/lib/ingest';
 import { today } from '@/lib/dates';
-import { SCREENSHOT_MODEL } from '@/lib/image-import/read-screenshot';
+import { CATEGORY_LABELS } from '@/lib/categorize';
+import { screenshotModel } from '@/lib/image-import/read-screenshot';
 import { externalIdFor, parseScreenDateTime, postedAtOf, rowKey, statusOf } from '@/lib/image-import/review';
 import type { NormalizedTransaction } from '@/lib/types';
 
@@ -50,6 +51,21 @@ const Row = z.object({
   original: z.record(z.unknown()).nullable(),
   /** Which model read it — a fallback may have answered instead of the one asked. */
   readBy: z.string().trim().max(80).nullable().optional(),
+  /**
+   * What the person filing it says this is. Optional on purpose: classifying
+   * every row before saving would make a fifty-row statement a chore, and the
+   * rules in `categorize` are usually right. A value here beats the rules; an
+   * empty one leaves the row to them.
+   */
+  category: z
+    .string()
+    .trim()
+    .max(60)
+    .nullable()
+    .optional()
+    .refine((value) => !value || value in CATEGORY_LABELS, {
+      message: 'is not a category this ledger uses',
+    }),
 });
 
 const Body = z.object({
@@ -108,6 +124,13 @@ export async function POST(request: Request) {
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
   const latest = tomorrow.toISOString().slice(0, 10);
 
+  /**
+   * What to record for a row that arrived without naming its reader. The
+   * configured provider is the honest guess, and it is read once rather than
+   * per row so a mid-request config change cannot label two rows differently.
+   */
+  const fallbackModel = screenshotModel();
+
   const refusals: string[] = [];
   input.rows.forEach((r, i) => {
     const label = `Row ${i + 1}`;
@@ -141,7 +164,7 @@ export async function POST(request: Request) {
       imported_by: auth.session.user.id,
       column_map: {
         kind: 'screenshot',
-        read_by: [...new Set(input.rows.map((r) => r.readBy ?? SCREENSHOT_MODEL))].join(', '),
+        read_by: [...new Set(input.rows.map((r) => r.readBy ?? fallbackModel))].join(', '),
         images: input.images,
         edited_rows: input.rows.filter((r) => r.edited).length,
       },
@@ -167,9 +190,17 @@ export async function POST(request: Request) {
       source_system: 'image_vn_bank',
       external_txn_id: externalIdFor(account.id as string, key),
       manual_import_id: manualImportId,
+      // `ingestTransactions` prefers a category supplied by the source over its
+      // own rules, which is exactly the behaviour wanted here: the person was
+      // looking at the screenshot.
+      category: r.category ?? undefined,
+      // Picking "Internal transfer" has to move the row out of revenue and
+      // spending as well as label it, or the figures stay wrong while the
+      // label looks right.
+      is_internal_transfer: r.category === 'transfer' ? true : undefined,
       raw: {
         source: 'screenshot',
-        read_by: r.readBy ?? SCREENSHOT_MODEL,
+        read_by: r.readBy ?? fallbackModel,
         reference: r.reference,
         transfer_type: r.transferType,
         counterparty_bank: r.counterpartyBank,
@@ -192,12 +223,65 @@ export async function POST(request: Request) {
     return true;
   });
   const duplicatesInBatch = transactions.length - unique.length;
+
+  /*
+   * Which of these the ledger already had, asked BEFORE anything is written.
+   *
+   * The first version compared each row's `created_at` against a timestamp
+   * taken in this process, and marked every row of a first import as already
+   * present: `created_at` is Postgres's clock and the timestamp was Node's, and
+   * the two do not agree to the millisecond. Any answer that depends on two
+   * clocks agreeing is the wrong answer; asking first needs no clock at all.
+   */
+  const { data: existingRows } = await db
+    .from('transactions')
+    .select('external_txn_id')
+    .eq('account_id', account.id)
+    .in('external_txn_id', [...seenIds]);
+  const alreadyInLedger = new Set((existingRows ?? []).map((row) => row.external_txn_id as string));
+
   const result = await ingestTransactions(db, unique, { asOf });
 
   await db
     .from('manual_imports')
     .update({ inserted_count: result.inserted, skipped_count: result.duplicatesSkipped + duplicatesInBatch })
     .eq('id', manualImportId);
+
+  /*
+   * What the ledger holds from this batch, read back rather than assumed.
+   *
+   * A count alone ("12 added") leaves the person who just transcribed fifty
+   * rows with no way to see what became of them — and no way to notice that
+   * the eight the ledger already had are the eight they meant to add. Reading
+   * the rows back by their ids answers both, and shows the category each one
+   * actually ended up with, which is not always the one that was chosen: a row
+   * left on Auto is classified by the rules at ingest time.
+   */
+  const { data: savedRows } = await db
+    .from('transactions')
+    .select('id,txn_date,amount_minor,currency,direction,description,category,external_txn_id')
+    .in('external_txn_id', [...seenIds])
+    .eq('account_id', account.id)
+    .order('txn_date', { ascending: false });
+
+  const byExternalId = new Map((savedRows ?? []).map((row) => [row.external_txn_id as string, row]));
+  const saved = unique.map((t) => {
+    const row = byExternalId.get(t.external_txn_id) as
+      | { id: string; txn_date: string; amount_minor: number; currency: string; direction: string; description: string | null; category: string | null }
+      | undefined;
+    return {
+      id: row?.id ?? null,
+      txnDate: t.txn_date,
+      amountMinor: t.amount_minor,
+      currency: t.currency,
+      direction: t.direction,
+      counterpartyName: t.counterparty_name,
+      description: row?.description ?? t.description,
+      category: row?.category ?? null,
+      /** True when this row was already in the ledger before this import. */
+      alreadyPresent: alreadyInLedger.has(t.external_txn_id),
+    };
+  });
 
   return Response.json({
     ok: true,
@@ -207,5 +291,6 @@ export async function POST(request: Request) {
     duplicatesInBatch,
     flaggedAsPossibleDuplicate: result.flaggedAsPossibleDuplicate,
     errors: result.errors,
+    saved,
   });
 }

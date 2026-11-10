@@ -405,18 +405,55 @@ describe('the one AI service is named in the privacy policy', () => {
    * it; this fails the day an AI SDK is imported without the policy naming who
    * it sends data to.
    */
-  it('names Anthropic, because src/ calls its API', () => {
-    const walk = (dir: string): string[] =>
-      fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) =>
-        e.isDirectory() ? walk(`${dir}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}/${e.name}`] : [],
-      );
-    const users = walk('src').filter((f) => read(f).includes("from '@anthropic-ai/sdk"));
-    expect(users.length).toBeGreaterThan(0);
+  const walk = (dir: string): string[] =>
+    fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(`${dir}/${e.name}`) : /\.(ts|tsx)$/.test(e.name) ? [`${dir}/${e.name}`] : [],
+    );
+
+  /**
+   * Every AI service the code can reach, and the name the policy must use for
+   * it. Adding a third reader without adding a line here is the mistake this
+   * table exists to turn into a failing test rather than a quiet disclosure
+   * gap.
+   */
+  const AI_SERVICES = [
+    { vendor: 'Anthropic', reaches: (source: string) => source.includes("from '@anthropic-ai/sdk") },
+    { vendor: 'Google', reaches: (source: string) => source.includes('generativelanguage.googleapis.com') },
+  ];
+
+  it('names every AI service src/ can send a screenshot to', () => {
     const policy = read('src/app/privacy/page.tsx');
-    expect(policy).toContain('<strong>Anthropic</strong>');
+    const files = walk('src');
+
+    for (const service of AI_SERVICES) {
+      const users = files.filter((f) => service.reaches(read(f)));
+      expect(users.length, `nothing reaches ${service.vendor}`).toBeGreaterThan(0);
+      expect(policy, `the policy does not name ${service.vendor}`).toContain(`<strong>${service.vendor}</strong>`);
+    }
     expect(policy).toMatch(/not stored by this\s+application/);
-    // And only the screenshot reader may talk to it.
-    expect(users).toEqual(['src/lib/image-import/read-screenshot.ts']);
+  });
+
+  it('keeps the AI calls inside the screenshot readers', () => {
+    const files = walk('src');
+    const callers = files.filter((f) => AI_SERVICES.some((s) => s.reaches(read(f))));
+    expect(callers.sort()).toEqual([
+      'src/lib/image-import/providers/anthropic.ts',
+      'src/lib/image-import/providers/gemini.ts',
+    ]);
+  });
+
+  /**
+   * Google's free tier may use submitted content to improve its products and
+   * have humans read it, and its terms say not to send confidential data
+   * there. The guard that keeps bank screenshots off it is a single
+   * comparison; this fails if that comparison is ever deleted.
+   */
+  it('refuses Gemini until the key is confirmed to be a paid project', () => {
+    const provider = read('src/lib/image-import/providers/gemini.ts');
+    expect(provider).toContain('GEMINI_PAID_TIER');
+    expect(provider).toMatch(/paidTierConfirmed\(\)/);
+    const policy = read('src/app/privacy/page.tsx');
+    expect(policy).toMatch(/free\s+tier/);
   });
 
   it('the screenshot routes never write an image anywhere', () => {

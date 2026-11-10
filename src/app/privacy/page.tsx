@@ -199,17 +199,30 @@ export default function PrivacyPage() {
       <Section title="Screenshots of AHN&rsquo;s banking app">
         <p>
           AHN staff can import transactions by uploading screenshots of AHN&rsquo;s own banking
-          app. Each screenshot is sent to <strong>Anthropic</strong>&rsquo;s API, where an AI model
+          app. Each screenshot is sent to one AI service — <strong>Anthropic</strong> or{' '}
+          <strong>Google</strong>, whichever this deployment is configured to use — where a model
           reads the transactions shown on it; a member of AHN&rsquo;s staff then checks every row
           against the screenshot before anything is saved.
         </p>
         <p>
           The screenshot is used only for that reading and is <strong>not stored by this
-          application</strong> — only the rows a person approves are kept. Under Anthropic&rsquo;s
-          commercial terms, data sent through its API is not used to train its models by default
-          and is deleted within 30 days; see{' '}
-          <A href="https://privacy.anthropic.com/">Anthropic&rsquo;s privacy centre</A>. No
-          QuickBooks data is ever sent to Anthropic or to any other AI service.
+          application</strong> — only the rows a person approves are kept.
+        </p>
+        <p>
+          Under Anthropic&rsquo;s commercial terms, data sent through its API is not used to train
+          its models by default and is deleted within 30 days; see{' '}
+          <A href="https://privacy.anthropic.com/">Anthropic&rsquo;s privacy centre</A>. Where
+          Google is used, it is only ever through a <strong>paid</strong> Gemini API project,
+          whose terms state that Google does not use prompts or responses to improve its products
+          and logs them only briefly to detect abuse; see{' '}
+          <A href="https://aistudio.google.com/docs/terms">Google&rsquo;s API terms</A>. The free
+          tier of that API, where submitted content may be used to improve Google&rsquo;s products
+          and read by human reviewers, is never used for this: the application refuses to send a
+          screenshot until the key is confirmed to belong to a billed project.
+        </p>
+        <p>
+          No QuickBooks, Plaid or Stripe data is ever sent to either service, or to any other AI
+          service.
         </p>
       </Section>
 
